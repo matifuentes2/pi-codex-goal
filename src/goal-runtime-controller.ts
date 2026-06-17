@@ -20,7 +20,8 @@ import {
   setRecoveryPausedAttention,
   type GoalStartTurnStrategy,
 } from "./recovery-machine.js";
-import { goalWithLiveUsage } from "./state.js";
+import { compactContinuationPrompt } from "./prompts.js";
+import { goalWithLiveUsage, replaceGoal } from "./state.js";
 import { registerGoalTools } from "./tools.js";
 import type { GoalEntrySource, GoalResult, ThreadGoal } from "./types.js";
 
@@ -145,6 +146,39 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
 
 export function registerGoalRuntimeController(pi: ExtensionAPI): void {
   const controller = createGoalRuntimeController(pi);
+  let latestContext: ExtensionContext | null = null;
+
+  pi.on("session_start", (_event, ctx) => {
+    latestContext = ctx;
+  });
+
+  let unsubscribeStartEvent: (() => void) | undefined;
+  try {
+    unsubscribeStartEvent = pi.events.on("pi-codex-goal:start", (payload: unknown) => {
+      const objective =
+        typeof payload === "object" && payload !== null && "objective" in payload
+          ? String((payload as { objective?: unknown }).objective ?? "").trim()
+          : "";
+      if (!objective || !latestContext) return;
+
+      const result = replaceGoal(objective, null);
+      if (!result.ok || !result.goal) {
+        latestContext.ui.notify(result.message, "error");
+        return;
+      }
+
+      controller.setGoal(result.goal, "command", latestContext);
+      latestContext.ui.notify(result.message);
+      pi.sendUserMessage(compactContinuationPrompt(result.goal), { deliverAs: "followUp" });
+    });
+  } catch {
+    // Some test harnesses intentionally stub pi.events. Runtime pi provides it.
+  }
+
+  pi.on("session_shutdown", () => {
+    unsubscribeStartEvent?.();
+    latestContext = null;
+  });
   registerGoalTools(pi, {
     getGoal: () => controller.getGoalForDisplay(),
     setGoal: controller.setGoal.bind(controller),
