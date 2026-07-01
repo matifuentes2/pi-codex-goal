@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerGoalCommand } from "./commands.js";
 import { createContinuationScheduler } from "./continuation-scheduler.js";
 import { createGoalAccounting } from "./goal-accounting.js";
+import { createGoalAutoCompaction } from "./goal-auto-compaction.js";
 import { createGoalPersistence } from "./goal-persistence.js";
 import {
   createGoalRuntimeEventHandlers,
@@ -99,6 +100,11 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
     sendMessage: pi.sendMessage.bind(pi),
   });
 
+  const autoCompaction = createGoalAutoCompaction({
+    getGoal: () => stateController.getGoal(),
+    continueGoal: continuation.maybeContinue,
+  });
+
   const recoveryRuntime = createGoalRecoveryRuntime({
     getGoal: () => stateController.getGoal(),
     getRecoveryState: () => runtimeState.recoveryState,
@@ -110,7 +116,7 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
       );
     },
     refreshUi: status.refreshUi,
-    maybeContinue: continuation.maybeContinue,
+    maybeContinue: autoCompaction.maybeCompactThenContinue,
   });
 
   const eventHandlers = createGoalRuntimeEventHandlers({

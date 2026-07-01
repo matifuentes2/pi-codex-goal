@@ -154,6 +154,141 @@ test("completed turns count input plus output and continue active goals", async 
   });
 });
 
+test("soft context usage compacts before auto-continuing active goals", async () => {
+  const harness = createRuntimeHarness({
+    compactCompletion: "manual",
+    contextUsage: { tokens: 65_000, contextWindow: 100_000, percent: 65 },
+  });
+  await harness.runCommand("ship it");
+  const queued = harness.sentMessages[0];
+  assert.ok(queued);
+  harness.sentMessages.length = 0;
+
+  await harness.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 1 });
+  await harness.emit("message_start", {
+    type: "message_start",
+    message: queuedCustomMessage(queued),
+  });
+  await harness.emit("turn_end", {
+    type: "turn_end",
+    turnIndex: 0,
+    message: assistantMessage("stop", { input: 30, output: 12 }),
+    toolResults: [],
+  });
+
+  assert.equal(harness.compactCalls.length, 1);
+  assert.match(harness.compactCalls[0]?.customInstructions ?? "", /soft-threshold compaction/);
+  assert.match(harness.compactCalls[0]?.customInstructions ?? "", /Active goal id:/);
+  assert.equal(harness.sentMessages.length, 0);
+
+  harness.compactCalls[0]?.onComplete?.({
+    summary: "compact summary",
+    tokensBefore: 80_000,
+    firstKeptEntryId: "entry-1",
+  });
+
+  assert.equal(harness.sentMessages.length, 1);
+  assert.deepEqual(harness.sentMessages[0]?.message.details, {
+    kind: "continuation",
+    goalId: harness.snapshot().goal?.goalId,
+  });
+});
+
+test("hard context usage is recorded in proactive compaction instructions", async () => {
+  const harness = createRuntimeHarness({
+    compactCompletion: "manual",
+    contextUsage: { tokens: 75_000, contextWindow: 100_000, percent: 75 },
+  });
+  await harness.runCommand("ship it");
+  const queued = harness.sentMessages[0];
+  assert.ok(queued);
+  harness.sentMessages.length = 0;
+
+  await harness.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 1 });
+  await harness.emit("message_start", {
+    type: "message_start",
+    message: queuedCustomMessage(queued),
+  });
+  await harness.emit("turn_end", {
+    type: "turn_end",
+    turnIndex: 0,
+    message: assistantMessage("stop", { input: 30, output: 12 }),
+    toolResults: [],
+  });
+
+  assert.equal(harness.compactCalls.length, 1);
+  assert.match(harness.compactCalls[0]?.customInstructions ?? "", /hard-threshold compaction/);
+  assert.equal(harness.sentMessages.length, 0);
+});
+
+test("context usage below the soft threshold continues without compaction", async () => {
+  const harness = createRuntimeHarness({
+    contextUsage: { tokens: 64_000, contextWindow: 100_000, percent: 64 },
+  });
+  await harness.runCommand("ship it");
+  const queued = harness.sentMessages[0];
+  assert.ok(queued);
+  harness.sentMessages.length = 0;
+
+  await harness.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 1 });
+  await harness.emit("message_start", {
+    type: "message_start",
+    message: queuedCustomMessage(queued),
+  });
+  await harness.emit("turn_end", {
+    type: "turn_end",
+    turnIndex: 0,
+    message: assistantMessage("stop", { input: 30, output: 12 }),
+    toolResults: [],
+  });
+
+  assert.equal(harness.compactCalls.length, 0);
+  assert.equal(harness.sentMessages.length, 1);
+});
+
+test("recent auto-compaction suppresses repeat compaction on stale high usage", async () => {
+  const harness = createRuntimeHarness({
+    compactCompletion: "immediate",
+    contextUsage: { tokens: 80_000, contextWindow: 100_000, percent: 80 },
+  });
+  await harness.runCommand("ship it");
+  const firstQueued = harness.sentMessages[0];
+  assert.ok(firstQueued);
+  harness.sentMessages.length = 0;
+
+  await harness.emit("turn_start", { type: "turn_start", turnIndex: 0, timestamp: 1 });
+  await harness.emit("message_start", {
+    type: "message_start",
+    message: queuedCustomMessage(firstQueued),
+  });
+  await harness.emit("turn_end", {
+    type: "turn_end",
+    turnIndex: 0,
+    message: assistantMessage("stop", { input: 30, output: 12 }),
+    toolResults: [],
+  });
+
+  assert.equal(harness.compactCalls.length, 1);
+  const secondQueued = harness.sentMessages[0];
+  assert.ok(secondQueued);
+  harness.sentMessages.length = 0;
+
+  await harness.emit("turn_start", { type: "turn_start", turnIndex: 1, timestamp: 2 });
+  await harness.emit("message_start", {
+    type: "message_start",
+    message: queuedCustomMessage(secondQueued),
+  });
+  await harness.emit("turn_end", {
+    type: "turn_end",
+    turnIndex: 1,
+    message: assistantMessage("stop", { input: 5, output: 5 }),
+    toolResults: [],
+  });
+
+  assert.equal(harness.compactCalls.length, 1);
+  assert.equal(harness.sentMessages.length, 1);
+});
+
 test("tool-use turn ends do not queue continuation before tool execution finishes", async () => {
   const harness = createRuntimeHarness();
   await harness.runCommand("ship it");

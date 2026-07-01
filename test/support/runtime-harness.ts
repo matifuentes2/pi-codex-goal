@@ -37,6 +37,7 @@ export function createRuntimeHarness(options: {
   compactBehavior?: "success" | "error" | "unavailable";
   compactCompletion?: "immediate" | "manual";
   contextWindow?: number;
+  contextUsage?: { tokens: number | null; contextWindow: number; percent: number | null };
 } = {}) {
   const entries: ReturnType<ExtensionCommandContext["sessionManager"]["getBranch"]> = [];
   const handlers = new Map<string, EventHandler[]>();
@@ -207,7 +208,7 @@ export function createRuntimeHarness(options: {
     },
     cwd: "/tmp",
     fork: async () => ({ cancelled: false }),
-    getContextUsage: () => undefined,
+    getContextUsage: () => options.contextUsage,
     getSystemPrompt: () => "",
     getSystemPromptOptions: () => ({ cwd: ctx.cwd }),
     hasUI: true,
@@ -323,6 +324,13 @@ export function createRuntimeHarness(options: {
         provider: "test",
         contextWindow,
       } as ExtensionCommandContext["model"];
+    },
+    setContextUsage(usage: { tokens: number | null; contextWindow: number; percent: number | null } | undefined) {
+      if (usage === undefined) {
+        delete options.contextUsage;
+        return;
+      }
+      options.contextUsage = usage;
     },
     get hostOverflowRecoveryAttempted() {
       return runtime.hostOverflowRecoveryAttempted;
