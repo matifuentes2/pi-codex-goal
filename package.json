@@ -5,9 +5,9 @@
   "type": "module",
   "author": "Mitch Fultz (https://github.com/fitchmultz)",
   "license": "MIT",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "files": [
-    "src",
+    "dist",
     "docs",
     "scripts",
     "AGENTS.md",
@@ -36,7 +36,7 @@
   "homepage": "https://github.com/fitchmultz/pi-codex-goal#readme",
   "pi": {
     "extensions": [
-      "./src/index.ts"
+      "./dist/index.js"
     ],
     "prompts": [
       "./prompts"
@@ -52,7 +52,9 @@
     "smoke:platform:macos": "node scripts/platform-smoke.mjs run --target macos",
     "smoke:platform:ubuntu": "node scripts/platform-smoke.mjs run --target ubuntu",
     "smoke:platform:windows-native": "node scripts/platform-smoke.mjs run --target windows-native",
-    "smoke:platform:all": "node scripts/platform-smoke.mjs doctor --skip-windows-disposable-probe && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native"
+    "smoke:platform:all": "node scripts/platform-smoke.mjs doctor --skip-windows-disposable-probe && node scripts/platform-smoke.mjs run --target macos,ubuntu,windows-native",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm --packages external --splitting",
+    "prepare": "npm run build"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
