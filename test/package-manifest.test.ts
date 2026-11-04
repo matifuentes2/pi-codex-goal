@@ -62,5 +62,6 @@ test("package exposes the create-goal prompt template", () => {
   assert.ok(packageJson.pi?.prompts?.includes("./prompts"));
 
   const prompt = readFileSync("prompts/create-goal.md", "utf8");
-  assert.equal(prompt, EXPECTED_CREATE_GOAL_PROMPT);
+  // Git may check this Markdown file out with CRLF on Windows.
+  assert.equal(prompt.replace(/\r\n/g, "\n"), EXPECTED_CREATE_GOAL_PROMPT);
 });

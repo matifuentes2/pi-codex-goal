@@ -1,15 +1,15 @@
 import {
+  formatGoalSummary2
+} from "./index-br6qz0n5.js";
+import {
+  compactContinuationPrompt2,
+  continuationPrompt2
+} from "./index-s6646vjc.js";
+import {
   CUSTOM_ENTRY_TYPE,
-  replaceGoal,
-  updateGoalStatus
-} from "./index-g4km8f95.js";
-import {
-  compactContinuationPrompt,
-  continuationPrompt
-} from "./index-trwehmdc.js";
-import {
-  formatGoalSummary
-} from "./index-snztw4g3.js";
+  replaceGoal2,
+  updateGoalStatus2
+} from "./index-h4gd6y3m.js";
 
 // src/clipboard.ts
 import { spawn } from "node:child_process";
@@ -95,18 +95,18 @@ function completions(prefix) {
 function queueGoalTurn(pi, goal, kind) {
   pi.sendMessage({
     customType: CUSTOM_ENTRY_TYPE,
-    content: continuationPrompt(goal),
+    content: continuationPrompt2(goal),
     display: false,
     details: { kind, goalId: goal.goalId }
   }, { triggerTurn: true, deliverAs: "followUp" });
 }
 function queueGoalUserTurn(pi, goal) {
-  pi.sendUserMessage(compactContinuationPrompt(goal), { deliverAs: "followUp" });
+  pi.sendUserMessage(compactContinuationPrompt2(goal), { deliverAs: "followUp" });
 }
-async function handleGoalCommand(pi, host, args, ctx, copyText = copyTextToClipboard) {
+async function handleGoalCommand2(pi, host, args, ctx, copyText = copyTextToClipboard) {
   const trimmed = args.trim();
   if (trimmed.length === 0) {
-    ctx.ui.notify(formatGoalSummary(host.getGoal()));
+    ctx.ui.notify(formatGoalSummary2(host.getGoal()));
     return;
   }
   if (trimmed === "clear") {
@@ -125,31 +125,31 @@ async function handleGoalCommand(pi, host, args, ctx, copyText = copyTextToClipb
       ctx.ui.notify("No goal is set.", "warning");
       return;
     }
-    const result2 = await copyText(goal.objective);
-    if (!result2.ok) {
-      ctx.ui.notify(result2.message ? `Could not copy goal objective: ${result2.message}` : "Could not copy goal objective.", "error");
+    const result = await copyText(goal.objective);
+    if (!result.ok) {
+      ctx.ui.notify(result.message ? `Could not copy goal objective: ${result.message}` : "Could not copy goal objective.", "error");
       return;
     }
     ctx.ui.notify("Goal objective copied.");
     return;
   }
   if (trimmed === "pause" || trimmed === "resume") {
-    const current2 = host.getGoal();
-    if (trimmed === "resume" && current2?.status === "active" && host.getGoalStartTurnStrategy() === "userFollowUp") {
-      queueGoalUserTurn(pi, current2);
+    const current = host.getGoal();
+    if (trimmed === "resume" && current?.status === "active" && host.getGoalStartTurnStrategy() === "userFollowUp") {
+      queueGoalUserTurn(pi, current);
       ctx.ui.notify("Goal already active; queued a continuation.");
       return;
     }
     const status = trimmed === "pause" ? "paused" : "active";
-    const result2 = updateGoalStatus(current2, status);
-    if (!result2.ok || !result2.goal) {
-      ctx.ui.notify(result2.message, "warning");
+    const result = updateGoalStatus2(current, status);
+    if (!result.ok || !result.goal) {
+      ctx.ui.notify(result.message, "warning");
       return;
     }
-    host.setGoal(result2.goal, "command", ctx);
-    ctx.ui.notify(result2.message);
-    if (trimmed === "resume" && result2.goal.status === "active") {
-      queueGoalUserTurn(pi, result2.goal);
+    host.setGoal(result.goal, "command", ctx);
+    ctx.ui.notify(result.message);
+    if (trimmed === "resume" && result.goal.status === "active") {
+      queueGoalUserTurn(pi, result.goal);
     }
     return;
   }
@@ -169,7 +169,7 @@ ${trimmed}`);
       return;
     }
   }
-  const result = replaceGoal(trimmed);
+  const result = replaceGoal2(trimmed);
   if (!result.ok || !result.goal) {
     ctx.ui.notify(result.message, "error");
     return;
@@ -182,16 +182,16 @@ ${trimmed}`);
     queueGoalTurn(pi, result.goal, "command_start");
   }
 }
-function registerGoalCommand(pi, host) {
+function registerGoalCommand2(pi, host) {
   pi.registerCommand("goal", {
     description: "Show or manage the current Codex-style goal.",
     getArgumentCompletions(argumentPrefix) {
       return completions(argumentPrefix.trim());
     },
     async handler(args, ctx) {
-      await handleGoalCommand(pi, host, args, ctx);
+      await handleGoalCommand2(pi, host, args, ctx);
     }
   });
 }
 
-export { handleGoalCommand, registerGoalCommand };
+export { handleGoalCommand2, registerGoalCommand2 };

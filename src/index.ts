@@ -7,6 +7,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import type { GoalToolResponse } from "./format.js";
+import { registerGoalControlTools } from "./goal-control-tools.js";
 import type { GoalRuntimeController } from "./goal-runtime-controller.js";
 import type { GoalEntrySource, GoalResult, ThreadGoal } from "./types.js";
 
@@ -56,17 +58,6 @@ const COMMANDS = ["pause", "resume", "clear", "copy"] as const;
 type SessionStartEvent = Extract<ExtensionEvent, { type: "session_start" }>;
 type SessionTreeEvent = Extract<ExtensionEvent, { type: "session_tree" }>;
 type SessionShutdownEvent = Extract<ExtensionEvent, { type: "session_shutdown" }>;
-
-type GoalToolResponse = {
-  goal: ThreadGoal | null;
-  hasGoal: boolean;
-  status: ThreadGoal["status"] | null;
-  objective: string | null;
-  tokenBudget: number | null;
-  tokensUsed: number;
-  tokensRemaining: number | null;
-  activeSeconds: number;
-};
 
 type GoalToolResult = AgentToolResult<GoalToolResponse & { error: string | null }>;
 
@@ -244,6 +235,13 @@ export default function (pi: ExtensionAPI): void {
   }
 
   registerLazyGoalTools(pi, getController);
+  registerGoalControlTools(pi, async () => {
+    const controller = await getController();
+    return {
+      getGoal: () => controller.getGoalForDisplay(),
+      setGoal: controller.setGoal.bind(controller),
+    };
+  });
   registerLazyGoalCommand(pi, getController);
 
   pi.on("session_start", async (event, ctx) => {

@@ -170,6 +170,8 @@ This intentionally matches Codex TUI behavior: token budgets are set through the
 
 `get_goal` returns the current goal state and usage.
 
+`pause_goal` and `resume_goal` expose lifecycle controls to headless/T3 Code agents as well as the `/goal pause` and `/goal resume` commands. Pause when the user requests it or no unblocked work remains (for example, while waiting for a delegated review), rather than emitting repeated waiting updates. Resume only after explicit user authorization; a delegate notification alone must not undo a user pause. Both tools preserve the existing goal identity, objective, budget and usage. Resume does not bypass exhausted budgets or reopen completed goals, and does not queue a duplicate turn when called within an agent run. Reload the extension (or restart the Pi session) to expose newly added tools in an existing host.
+
 `update_goal` only accepts `status: "complete"`, matching Codex's model-side contract. Calling it on an already-complete goal is idempotent and does not append duplicate session entries. The extension reports final token and elapsed-time usage before marking the goal complete.
 
 Completed goals are terminal for automatic transitions: pause, resume, and hidden continuations do not reopen them. To recover from premature completion, use `/goal <objective>` to replace the goal, call `create_goal` with `replace_existing: true`, or `/goal clear` before starting again.

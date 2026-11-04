@@ -2,6 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { registerGoalControlTools } from "./goal-control-tools.js";
 import { goalToolResponse, toToolText, type GoalToolResponse } from "./format.js";
 import { createGoal, replaceGoal } from "./state.js";
 import { TOOL_PROMPT_GUIDELINES } from "./prompts.js";
@@ -55,6 +56,7 @@ function throwToolError(message: string): never {
 }
 
 export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
+  registerGoalControlTools(pi, async () => host);
   pi.registerTool({
     name: "get_goal",
     label: "Get Goal",
