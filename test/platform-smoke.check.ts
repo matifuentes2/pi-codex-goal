@@ -159,6 +159,8 @@ const customConfig = {
   macosStaticSsh: { host: "127.0.0.1", workRoot: "/Users/$USER/crabbox/custom-goal-package" },
   windowsParallels: { sourceVm: "custom-template", snapshot: "custom-snapshot", user: "windows-user", workRoot: "C:\\crabbox\\custom-goal-package" },
 };
+// The fixture must not depend on the calling host having a POSIX USER value.
+process.env.PLATFORM_SMOKE_MAC_USER = "fixture-user";
 const macArgs = buildTargetBaseArgs("macos", customConfig);
 const ubuntuArgs = buildTargetBaseArgs("ubuntu", customConfig);
 const windowsArgs = buildTargetBaseArgs("windows-native", customConfig);
@@ -180,7 +182,7 @@ const result = {
   goalRuntimeAssertsReadTool: readFileSync("scripts/platform-smoke/goal-runtime-smoke.mjs", "utf8").includes("readToolObserved"),
   goalRuntimeTargetChecksReadTool: readFileSync("scripts/platform-smoke/targets.mjs", "utf8").includes("read-tool-observed"),
   macArgsUseConfigHost: macArgs.includes("127.0.0.1"),
-  macArgsUseConfigWorkRoot: macArgs.includes("/Users/" + process.env.USER + "/crabbox/custom-goal-package"),
+  macArgsUseConfigWorkRoot: macArgs.includes("/Users/fixture-user/crabbox/custom-goal-package"),
   ubuntuArgsUseConfigImage: ubuntuArgs.includes("node:24-test"),
   windowsArgsUseConfigTemplate: windowsArgs.includes("custom-template"),
   windowsArgsUseConfigSnapshot: windowsArgs.includes("custom-snapshot"),
@@ -241,20 +243,23 @@ try {
   const warmupFailuresText = readFileSync(join(warmupFailure.suiteDir, "failures.md"), "utf8");
   const warmupStderrText = readFileSync(join(warmupFailure.suiteDir, "crabbox.stderr.txt"), "utf8");
   const warmupAssertions = JSON.parse(warmupAssertionsText);
-  const fakeCrabboxJs = join(root, "fake-crabbox.js");
+  const fakeCrabboxJs = join(root, "fake-crabbox.cjs");
   writeFileSync(fakeCrabboxJs, "process.stderr.write(" + JSON.stringify("warmup failed " + warmupSecret + "\n") + "); process.exit(1);\n");
-  const fakeCrabboxBin = process.platform === "win32" ? join(root, "fake-crabbox.cmd") : join(root, "fake-crabbox");
-  if (process.platform === "win32") {
-    writeFileSync(fakeCrabboxBin, "@echo off\r\n\"" + process.execPath + "\" \"%~dp0fake-crabbox.js\" %*\r\n");
-  } else {
-    writeFileSync(fakeCrabboxBin, "#!/bin/sh\nexec " + JSON.stringify(process.execPath) + " " + JSON.stringify(fakeCrabboxJs) + " \"$@\"\n");
-    chmodSync(fakeCrabboxBin, 0o755);
-  }
   const originalCrabbox = process.env.PLATFORM_SMOKE_CRABBOX;
-  process.env.PLATFORM_SMOKE_CRABBOX = fakeCrabboxBin;
-  const multiWarmupFailure = await runTargetSuites({ artifactRoot: root, packageName: "pi-codex-goal", defaultAuthEnv: ["ZAI_API_KEY"], ubuntuContainerImage: "fake-node-24" }, "ubuntu", ["platform-build", "goal-runtime-smoke"]);
-  if (originalCrabbox === undefined) delete process.env.PLATFORM_SMOKE_CRABBOX;
-  else process.env.PLATFORM_SMOKE_CRABBOX = originalCrabbox;
+  const originalNodeOptions = process.env.NODE_OPTIONS;
+  // Use a real executable on every OS. Windows cannot spawn a .cmd fixture
+  // without a shell; preloading this stub also keeps Crabbox arguments literal.
+  process.env.PLATFORM_SMOKE_CRABBOX = process.execPath;
+  process.env.NODE_OPTIONS = "--require " + JSON.stringify(fakeCrabboxJs.replaceAll("\\", "/"));
+  let multiWarmupFailure;
+  try {
+    multiWarmupFailure = await runTargetSuites({ artifactRoot: root, packageName: "pi-codex-goal", defaultAuthEnv: ["ZAI_API_KEY"], ubuntuContainerImage: "fake-node-24" }, "ubuntu", ["platform-build", "goal-runtime-smoke"]);
+  } finally {
+    if (originalCrabbox === undefined) delete process.env.PLATFORM_SMOKE_CRABBOX;
+    else process.env.PLATFORM_SMOKE_CRABBOX = originalCrabbox;
+    if (originalNodeOptions === undefined) delete process.env.NODE_OPTIONS;
+    else process.env.NODE_OPTIONS = originalNodeOptions;
+  }
   const multiWarmup = multiWarmupFailure.results[0];
   const multiWarmupAssertionsText = readFileSync(join(multiWarmup.suiteDir, "assertions.json"), "utf8");
   const multiWarmupFailuresText = readFileSync(join(multiWarmup.suiteDir, "failures.md"), "utf8");
@@ -291,7 +296,9 @@ try {
 });
 
 test("npm pack includes platform smoke docs and scripts", () => {
-  const result = run("npm", ["pack", "--dry-run", "--json"]);
+  // This test inspects the pack list. Build validation runs separately; prepare
+  // output can otherwise precede npm's JSON on stdout and invalidate parsing.
+  const result = run("npm", ["pack", "--dry-run", "--json", "--ignore-scripts"]);
   assert.equal(result.status, 0, result.stderr);
   const packs = JSON.parse(result.stdout) as Array<{ files: Array<{ path: string }> }>;
   const paths = new Set(packs[0]?.files.map((file) => file.path) ?? []);

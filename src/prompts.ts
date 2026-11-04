@@ -22,8 +22,8 @@ export const TOOL_PROMPT_GUIDELINES = [
   "When a goal is active, keep working through clear low-risk next steps instead of stopping at a plan.",
 ];
 
-export function continuationGoalIdFromPrompt(prompt: string): string | null {
-  if (!prompt.startsWith(CONTINUATION_MARKER_PREFIX)) {
+export function continuationGoalIdFromPrompt(prompt: unknown): string | null {
+  if (typeof prompt !== "string" || !prompt.startsWith(CONTINUATION_MARKER_PREFIX)) {
     return null;
   }
   const end = prompt.indexOf("\"", CONTINUATION_MARKER_PREFIX.length);
@@ -74,6 +74,7 @@ export function compactContinuationPrompt(goal: ThreadGoal): string {
     `- Tokens remaining: ${formatRemainingTokens(goal)}`,
     "",
     "Avoid repeating work that is already done. Choose the next concrete action toward the objective.",
+    "If no unblocked work remains, use the exposed pause_goal tool to stop automatic continuations rather than repeating waiting updates. Paused is not complete; use resume_goal only after explicit user authorization.",
     "",
     `Before marking the goal complete, audit progress against the objective and call ${goalToolReference("update_goal")} with status \"complete\" only when every requirement is verified.`,
     GOAL_TOOL_NAME_GUIDANCE,
@@ -99,6 +100,7 @@ export function continuationPrompt(goal: ThreadGoal): string {
     `- Tokens remaining: ${formatRemainingTokens(goal)}`,
     "",
     "Avoid repeating work that is already done. Choose the next concrete action toward the objective.",
+    "If no unblocked work remains, use the exposed pause_goal tool to stop automatic continuations rather than repeating waiting updates. Paused is not complete; use resume_goal only after explicit user authorization.",
     "",
     "Before deciding that the goal is achieved, perform a completion audit against the actual current state:",
     "- Restate the objective as concrete deliverables or success criteria.",

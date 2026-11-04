@@ -1,9 +1,7 @@
 import {
-  __testHooks
-} from "./index-f27qvakt.js";
-import {
-  __require
-} from "./index-a1s5r901.js";
+  registerGoalControlTools,
+  __testHooks2
+} from "./index-6w3fdb4h.js";
 
 // src/index.ts
 import { Type } from "typebox";
@@ -47,7 +45,7 @@ function throwToolError(message) {
   throw new Error(message);
 }
 async function textResult(text, goal, includeCompletionBudgetReport = false) {
-  const { goalToolResponse } = await import("./format-tea9sgxj.js");
+  const { goalToolResponse } = await import("./format-wgt0extz.js");
   return {
     content: [{ type: "text", text }],
     details: { ...goalToolResponse(goal, includeCompletionBudgetReport), error: null }
@@ -64,7 +62,7 @@ function registerLazyGoalTools(pi, getController) {
     async execute() {
       const controller = await getController();
       const goal = controller.getGoalForDisplay();
-      const { toToolText } = await import("./format-tea9sgxj.js");
+      const { toToolText } = await import("./format-wgt0extz.js");
       return textResult(toToolText(goal), goal);
     }
   });
@@ -78,14 +76,14 @@ function registerLazyGoalTools(pi, getController) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const controller = await getController();
       const current = controller.getGoalForDisplay();
-      const { createGoal, replaceGoal } = await import("./state-m9sqzkxc.js");
+      const { createGoal, replaceGoal } = await import("./state-gnp0v2hd.js");
       const shouldReplaceExisting = params.replace_existing === true && current !== null && current.status !== "complete";
       const result = shouldReplaceExisting ? replaceGoal(params.objective, params.token_budget ?? null) : createGoal(current, params.objective, params.token_budget ?? null);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
       controller.setGoal(result.goal, "tool", ctx);
-      const { toToolText } = await import("./format-tea9sgxj.js");
+      const { toToolText } = await import("./format-wgt0extz.js");
       return textResult(toToolText(result.goal), result.goal);
     }
   });
@@ -102,7 +100,7 @@ function registerLazyGoalTools(pi, getController) {
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
-      const { toToolText } = await import("./format-tea9sgxj.js");
+      const { toToolText } = await import("./format-wgt0extz.js");
       return textResult(toToolText(result.goal, true), result.goal, true);
     }
   });
@@ -115,7 +113,7 @@ function registerLazyGoalCommand(pi, getController) {
     },
     async handler(args, ctx) {
       const controller = await getController();
-      const { handleGoalCommand } = await import("./commands-jb0hnech.js");
+      const { handleGoalCommand } = await import("./commands-9w4vwdks.js");
       await handleGoalCommand(pi, {
         getGoal: () => controller.getGoalForDisplay(),
         getGoalStartTurnStrategy: controller.getGoalStartTurnStrategy.bind(controller),
@@ -147,7 +145,7 @@ function src_default(pi) {
   const getController = async () => {
     if (controller)
       return controller;
-    controllerPromise ??= import("./goal-runtime-controller-feg5d7cc.js").then(async (mod) => {
+    controllerPromise ??= import("./goal-runtime-controller-ndjzft4m.js").then(async (mod) => {
       const nextController = mod.createGoalRuntimeController(pi);
       controller = nextController;
       await replayStartupEvents(nextController);
@@ -161,8 +159,8 @@ function src_default(pi) {
       if (!objective || !latestContext)
         return;
       const nextController = await getController();
-      const { replaceGoal } = await import("./state-m9sqzkxc.js");
-      const { compactContinuationPrompt } = await import("./prompts-eszdw255.js");
+      const { replaceGoal } = await import("./state-gnp0v2hd.js");
+      const { compactContinuationPrompt } = await import("./prompts-mjxx965c.js");
       const result = replaceGoal(objective, null);
       if (!result.ok || !result.goal) {
         latestContext.ui.notify(result.message, "error");
@@ -174,6 +172,13 @@ function src_default(pi) {
     });
   } catch {}
   registerLazyGoalTools(pi, getController);
+  registerGoalControlTools(pi, async () => {
+    const controller = await getController();
+    return {
+      getGoal: () => controller.getGoalForDisplay(),
+      setGoal: controller.setGoal.bind(controller)
+    };
+  });
   registerLazyGoalCommand(pi, getController);
   pi.on("session_start", async (event, ctx) => {
     latestContext = ctx;
@@ -204,6 +209,6 @@ function src_default(pi) {
   });
 }
 export {
-  src_default as default,
-  __testHooks
+  __testHooks2 as __testHooks,
+  src_default as default
 };

@@ -8,7 +8,7 @@ import type {
 
 import { continuationGoalIdFromPrompt } from "./prompts.js";
 import { applyQueuedGoalProviderContextRewrites, extensionQueuedGoalWorkMessageId } from "./queued-goal-work.js";
-import { isCommandResumeQueuedGoalMessage } from "./queued-goal-messages.js";
+import { isCommandResumeQueuedGoalMessage, type QueuedGoalContextInput } from "./queued-goal-messages.js";
 import { applyStaleQueuedWorkEffects } from "./goal-runtime-event-utils.js";
 import type {
   ContextEventResult,
@@ -16,6 +16,14 @@ import type {
   MessageStartEvent,
   QueuedGoalWorkMessageIdResolver,
 } from "./goal-runtime-event-handler-types.js";
+
+// Keep compatibility with the pinned pre-1.5 host types while accepting Pi 1.5's
+// custom-message starts, which deliberately have no `prompt` property.
+type GoalBeforeAgentStartEvent = BeforeAgentStartEvent | {
+  type: "before_agent_start";
+  messageType: "custom";
+  message: QueuedGoalContextInput;
+};
 
 export function createInputContextEventHandlers(
   deps: GoalRuntimeInputContextHandlerContext,
@@ -77,8 +85,10 @@ export function createInputContextEventHandlers(
       return changed ? { messages } : undefined;
     }) satisfies ExtensionHandler<ContextEvent, ContextEventResult | undefined>,
 
-    onBeforeAgentStart: (async (event, ctx) => {
-      const continuationGoalId = continuation.continuationGoalIdFromRuntimePrompt(event.prompt);
+    onBeforeAgentStart: (async (event: GoalBeforeAgentStartEvent, ctx) => {
+      const continuationGoalId = "message" in event
+        ? extensionQueuedGoalWorkMessageId(event.message)
+        : continuation.continuationGoalIdFromRuntimePrompt(event.prompt);
       if (continuationGoalId !== null) {
         continuation.clearContinuationStateFor(continuationGoalId);
         if (!stateController.isCurrentActiveGoalId(continuationGoalId)) {
