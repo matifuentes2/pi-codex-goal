@@ -155,7 +155,7 @@ var COMPACT_TOKEN_UNITS = [
   { suffix: "M", value: 1e6 },
   { suffix: "K", value: 1000 }
 ];
-function formatDuration2(seconds) {
+function formatDuration(seconds) {
   const normalized = Math.max(0, Math.trunc(seconds));
   const days = Math.floor(normalized / 86400);
   const hours = Math.floor(normalized % 86400 / 3600);
@@ -192,13 +192,19 @@ function formatCompactTokenValue(value) {
   });
   return `${compact}${unit.suffix}`;
 }
-function formatTokenValue2(value) {
+function formatTokenValue(value) {
   const exact = formatInteger(value);
   const compact = formatCompactTokenValue(value);
   if (compact === exact) {
     return exact;
   }
   return `${compact} (${exact})`;
+}
+function formatBudget(goal) {
+  if (goal.tokenBudget === null) {
+    return `${formatTokenValue(goal.usage.tokensUsed)} tokens`;
+  }
+  return `${formatTokenValue(goal.usage.tokensUsed)}/${formatTokenValue(goal.tokenBudget)} tokens`;
 }
 function statusLabel(status) {
   return status === "budgetLimited" ? "limited by budget" : status;
@@ -215,7 +221,7 @@ function commandHint(status) {
   }
   return "/goal clear";
 }
-function formatGoalSummary2(goal) {
+function formatGoalSummary(goal) {
   if (!goal) {
     return ["Usage: /goal <objective>", "No goal is currently set."].join(`
 `);
@@ -223,11 +229,11 @@ function formatGoalSummary2(goal) {
   const lines = [
     `Status: ${statusLabel(goal.status)}`,
     `Objective: ${goal.objective}`,
-    `Time used: ${formatDuration2(goal.usage.activeSeconds)}`,
-    `Tokens used: ${formatTokenValue2(goal.usage.tokensUsed)}`
+    `Time used: ${formatDuration(goal.usage.activeSeconds)}`,
+    `Tokens used: ${formatTokenValue(goal.usage.tokensUsed)}`
   ];
   if (goal.tokenBudget !== null) {
-    lines.push(`Token budget: ${formatTokenValue2(goal.tokenBudget)}`);
+    lines.push(`Token budget: ${formatTokenValue(goal.tokenBudget)}`);
   }
   lines.push(`Hint: ${commandHint(goal.status)}`);
   return lines.join(`
@@ -239,7 +245,7 @@ function compactBudgetUsage(goal) {
   }
   return `${formatCompactTokenValue(goal.usage.tokensUsed)} / ${formatCompactTokenValue(goal.tokenBudget)}`;
 }
-function formatFooterStatus2(goal, recoveryAttention = null) {
+function formatFooterStatus(goal, recoveryAttention = null) {
   if (!goal) {
     return;
   }
@@ -258,7 +264,7 @@ function formatFooterStatus2(goal, recoveryAttention = null) {
       return `Pursuing goal (${compactBudgetUsage(goal)})`;
     }
     if (goal.usage.activeSeconds > 0) {
-      return `Pursuing goal (${formatDuration2(goal.usage.activeSeconds)})`;
+      return `Pursuing goal (${formatDuration(goal.usage.activeSeconds)})`;
     }
     return "Pursuing goal";
   }
@@ -269,7 +275,7 @@ function formatFooterStatus2(goal, recoveryAttention = null) {
     return `Goal achieved (${formatCompactTokenValue(goal.usage.tokensUsed)} tokens)`;
   }
   if (goal.usage.activeSeconds > 0) {
-    return `Goal achieved (${formatDuration2(goal.usage.activeSeconds)})`;
+    return `Goal achieved (${formatDuration(goal.usage.activeSeconds)})`;
   }
   return "Goal achieved";
 }
@@ -300,7 +306,7 @@ function completionBudgetReport(goal) {
   }
   const parts = [];
   if (goal.usage.activeSeconds > 0) {
-    parts.push(`time used: ${formatDuration2(goal.usage.activeSeconds)}.`);
+    parts.push(`time used: ${formatDuration(goal.usage.activeSeconds)}.`);
   }
   if (goal.tokenBudget !== null) {
     parts.push(`tokens used: ${formatInteger(goal.usage.tokensUsed)} of ${formatInteger(goal.tokenBudget)}.`);
@@ -309,15 +315,15 @@ function completionBudgetReport(goal) {
   }
   return `Goal achieved. Report final budget usage to the user: ${parts.join(" ")}`;
 }
-function goalToolResponse2(goal, includeCompletionBudgetReport = false) {
+function goalToolResponse(goal, includeCompletionBudgetReport = false) {
   return {
     goal: goal ? toToolGoal(goal) : null,
     remainingTokens: remainingTokens(goal),
     completionBudgetReport: includeCompletionBudgetReport ? completionBudgetReport(goal) : null
   };
 }
-function toToolText2(goal, includeCompletionBudgetReport = false) {
-  return JSON.stringify(goalToolResponse2(goal, includeCompletionBudgetReport), null, 2);
+function toToolText(goal, includeCompletionBudgetReport = false) {
+  return JSON.stringify(goalToolResponse(goal, includeCompletionBudgetReport), null, 2);
 }
 
-export { CONTEXT_OVERFLOW_SIGNATURE, MAX_CONTEXT_COMPACTION_RETRIES, HOST_OVERFLOW_RECOVERY_REASON, createErrorRecoveryCounters, isErrorAssistantMessage, isSuccessfulAssistantTurn, isAssistantContextOverflow, isContextOverflowError, isRetryableTransientError, failureSignature, countersForFailureSignature, createRecoveryPendingAttention, createRecoveryPausedAttention, isRecoveryPendingAttention, reasonFromRecoveryPendingAttention, formatDuration2, formatTokenValue2, formatGoalSummary2, formatFooterStatus2, goalToolResponse2, toToolText2 };
+export { CONTEXT_OVERFLOW_SIGNATURE, MAX_CONTEXT_COMPACTION_RETRIES, HOST_OVERFLOW_RECOVERY_REASON, createErrorRecoveryCounters, isErrorAssistantMessage, isSuccessfulAssistantTurn, isAssistantContextOverflow, isContextOverflowError, isRetryableTransientError, failureSignature, countersForFailureSignature, createRecoveryPendingAttention, createRecoveryPausedAttention, isRecoveryPendingAttention, reasonFromRecoveryPendingAttention, formatDuration, formatInteger, formatCompactTokenValue, formatTokenValue, formatBudget, formatGoalSummary, formatFooterStatus, toToolGoal, remainingTokens, completionBudgetReport, goalToolResponse, toToolText };

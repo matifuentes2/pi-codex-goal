@@ -1,5 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { randomUUID } from "node:crypto";
+import { COMPLETION_HOST_EVENT, createPolicyRegistry, isProtected, type PolicyDescriptor, type PolicyAudit, type PrepareReview, type ReviewExecution } from "./completion-policy.js";
+import { runReviewer } from "./review-runner.js";
 import { registerGoalCommand } from "./commands.js";
 import { createContinuationScheduler } from "./continuation-scheduler.js";
 import { createGoalAccounting } from "./goal-accounting.js";
@@ -31,12 +34,16 @@ export interface GoalRuntimeController extends GoalRuntimeEventHandlers {
   getGoalStartTurnStrategy(): GoalStartTurnStrategy;
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
   clearGoal(source: GoalEntrySource, ctx: ExtensionContext): void;
-  completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  completeGoal(source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult>;
+  registerPolicy(id: string, audit: PolicyAudit, prepare?: PrepareReview): void;
+  startProtectedGoal(request: { objective: string; policy: PolicyDescriptor }, ctx: ExtensionContext): Promise<{ ok: boolean; goalId?: string; reason?: string }>;
+  runReview(provider: string, model: string, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
 }
 
 export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeController {
   const runtimeState = createGoalRuntimeState();
-  const persistence = createGoalPersistence({ pi });
+  const policies = createPolicyRegistry();
+  const persistence = createGoalPersistence({ pi, policies });
 
   const clearActiveAccounting = (): void => {
     runtimeState.accounting.activeGoalId = null;
@@ -131,9 +138,9 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
     resetErrorRecovery,
   });
 
-  const completeGoal = (source: GoalEntrySource, ctx: ExtensionContext): GoalResult => {
+  const completeGoal = (source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult> => {
     goalAccounting.accountProgress(ctx, false, 0, true);
-    return stateController.completeGoal(source, ctx);
+    return stateController.completeGoal(source, ctx, signal);
   };
 
   return {
@@ -146,6 +153,67 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
       stateController.applyGoalTransition({ kind: "clear", source }, ctx);
     },
     completeGoal,
+    registerPolicy: policies.registerPolicy,
+    async startProtectedGoal(request, ctx) {
+      const current = persistence.getGoal();
+      if (current && current.status !== "complete") return { ok: false, reason: "Existing non-complete goal was not replaced." };
+      const result = replaceGoal(request.objective, null);
+      if (!result.ok || !result.goal) return { ok: false, reason: result.message };
+      result.goal.completionPolicy = structuredClone(request.policy);
+      if (!policies.get(result.goal)?.prepare) return { ok: false, reason: "Completion policy or trusted reviewer preparation unavailable." };
+      stateController.applyGoalTransition({ kind: "set", nextGoal: result.goal, source: "command" }, ctx);
+      pi.sendUserMessage(compactContinuationPrompt(result.goal), { deliverAs: "followUp" });
+      return { ok: true, goalId: result.goal.goalId };
+    },
+    async runReview(provider, model, ctx, signal) {
+      const goal = persistence.getGoal();
+      if (!goal || !isProtected(goal) || goal.status === "complete") return { ok: false, reason: "No non-complete protected goal." };
+      const execution: ReviewExecution = { attemptId: randomUUID(), goalId: goal.goalId, headSha: "", freshContext: true, status: "running" };
+      const record = () => {
+        try { return persistence.recordReview(goal.goalId, execution); }
+        catch (error) {
+          // A ledger write failure must not leave automatic continuation active.
+          stateController.pauseForAbort(ctx);
+          throw error;
+        }
+      };
+      record();
+      let launched = false;
+      try {
+        if (signal?.aborted) throw new Error("Reviewer interrupted before launch.");
+        const selected = ctx.modelRegistry.find(provider, model);
+        if (!selected || selected.provider !== provider || selected.id !== model) throw new Error(`Unknown exact reviewer model ${provider}/${model}. No fallback permitted.`);
+        const prepare = policies.get(goal)?.prepare;
+        if (!prepare) throw new Error("Trusted reviewer preparation unavailable.");
+        const input = await prepare(structuredClone(goal.completionPolicy!.config), execution.attemptId);
+        if (!/^[a-f0-9]{40}$/.test(input.headSha) || !input.prompt?.trim()) throw new Error("Invalid trusted review input.");
+        execution.headSha = input.headSha;
+        // Do not launch stale work after a session switch, clear or newer attempt.
+        const latest = persistence.getGoal();
+        if (latest?.goalId !== goal.goalId || latest.reviewExecution?.attemptId !== execution.attemptId || latest.reviewExecution.status !== "running") throw new Error("Review attempt superseded.");
+        if (signal?.aborted) throw new Error("Reviewer interrupted before launch.");
+        launched = true;
+        const result = await runReviewer(provider, model, input.prompt, signal);
+        const after = await prepare(structuredClone(goal.completionPolicy!.config), execution.attemptId);
+        if (signal?.aborted || after.headSha !== input.headSha) throw new Error("PR head or checkout changed during review.");
+        execution.status = "completed";
+        execution.verdict = result.verdict;
+      } catch (error) {
+        execution.status = signal?.aborted ? "interrupted" : launched ? "runtime_failed" : "launch_failed";
+        execution.reason = error instanceof Error ? error.message : String(error);
+      }
+      if (!record()) return { ok: false, reason: "Review attempt superseded; result discarded." };
+      if (execution.status !== "completed") {
+        if (persistence.getGoal()?.status === "active") {
+          stateController.applyGoalTransition({ kind: "recovery_pause", recoveryReason: `review-failed: ${execution.reason}` }, ctx);
+        } else {
+          setRecoveryPausedAttention(runtimeState.recoveryState, `review-failed: ${execution.reason}`);
+          status.refreshUi(ctx);
+        }
+        return { ok: false, reason: `review-failed: ${execution.reason}` };
+      }
+      return { ok: true, reason: execution.verdict! };
+    },
     ...eventHandlers,
   };
 }
@@ -158,9 +226,30 @@ export function registerGoalRuntimeController(pi: ExtensionAPI): void {
     latestContext = ctx;
   });
 
+  let unsubscribePolicyHost: (() => void) | undefined;
+  try {
+    unsubscribePolicyHost = pi.events.on(COMPLETION_HOST_EVENT, (payload: unknown) => {
+      if (!payload || typeof payload !== "object" || !("provide" in payload) || typeof payload.provide !== "function") return;
+      payload.provide({
+        apiVersion: 1,
+        registerPolicy: controller.registerPolicy,
+        startGoal: (input: { objective: string; policy: PolicyDescriptor }) => latestContext
+          ? controller.startProtectedGoal(input, latestContext)
+          : Promise.resolve({ ok: false, reason: "No current session context." }),
+        runReview: (input: { provider: string; model: string }, signal?: AbortSignal) => latestContext
+          ? controller.runReview(input.provider, input.model, latestContext, signal)
+          : Promise.resolve({ ok: false, reason: "No current session context." }),
+      });
+    });
+  } catch { /* Minimal harnesses may not implement the shared event bus. */ }
+
   let unsubscribeStartEvent: (() => void) | undefined;
   try {
     unsubscribeStartEvent = pi.events.on("pi-codex-goal:start", (payload: unknown) => {
+      if (payload && typeof payload === "object" && "policy" in payload) {
+        latestContext?.ui.notify("blocked: Policy-bearing starts require the completion-policy host, not the legacy event.", "error");
+        return;
+      }
       const objective =
         typeof payload === "object" && payload !== null && "objective" in payload
           ? String((payload as { objective?: unknown }).objective ?? "").trim()
@@ -183,12 +272,14 @@ export function registerGoalRuntimeController(pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", () => {
     unsubscribeStartEvent?.();
+    unsubscribePolicyHost?.();
     latestContext = null;
   });
   registerGoalTools(pi, {
     getGoal: () => controller.getGoalForDisplay(),
     setGoal: controller.setGoal.bind(controller),
     completeGoal: controller.completeGoal.bind(controller),
+    runReview: controller.runReview.bind(controller),
   });
   registerGoalCommand(pi, {
     getGoal: () => controller.getGoalForDisplay(),

@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+import { isProtected, policyState } from "./completion-policy.js";
 import type { GoalPersistence } from "./goal-persistence.js";
 import type { StatusContext } from "./goal-runtime-status.js";
 import {
@@ -53,7 +54,7 @@ export interface GoalStateController {
     ctx: StatusContext | null,
   ) => boolean;
   beginOverflowRecovery: (ctx: StatusContext) => void;
-  completeGoal: (source: GoalEntrySource, ctx: ExtensionContext) => GoalResult;
+  completeGoal: (source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal) => GoalResult | Promise<GoalResult>;
   flushGoalPersistence: GoalPersistence["flushGoalPersistence"];
   getGoal: () => ThreadGoal | null;
   isCurrentActiveGoalId: (goalId: string) => boolean;
@@ -74,7 +75,13 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     request: GoalTransitionRequest,
     ctx: StatusContext | null,
   ): boolean => {
-    const plan = planGoalTransition(getGoal(), request);
+    const current = getGoal();
+    const plan = planGoalTransition(current, request);
+    if (plan.nextGoal && (isProtected(plan.nextGoal) && plan.nextGoal.status === "complete" ||
+        isProtected(current) && current!.goalId === plan.nextGoal.goalId &&
+        (!isProtected(plan.nextGoal) || policyState(current!) !== policyState(plan.nextGoal)))) {
+      throw new Error("Protected policy/evidence or completion cannot be changed through a direct transition.");
+    }
 
     applyGoalTransitionEffects(plan.beforePersist, deps.transitionEffectHandlers);
 
@@ -144,14 +151,15 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     const previousGoalId = getGoal()?.goalId ?? null;
     const branch = ctx.sessionManager.getBranch();
     const reconstructed = reconstructGoal(branch).goal;
-    deps.persistence.setGoalSnapshot(reconstructed);
+    deps.persistence.restoreGoalSnapshot(reconstructed);
     deps.persistence.syncPersistedSnapshot(reconstructed);
+    deps.persistence.flushGoalPersistence("runtime");
     syncHostOverflowUserResetFromSession(
       deps.getRecoveryState(),
       reconstructHostOverflowCapNeedsUserReset(branch),
     );
     applyGoalTransitionEffects(
-      reloadRuntimeEffects(previousGoalId, reconstructed),
+      reloadRuntimeEffects(previousGoalId, getGoal()),
       deps.transitionEffectHandlers,
     );
     deps.refreshUi(ctx);
@@ -175,8 +183,26 @@ export function createGoalStateController(deps: GoalStateControllerDeps) {
     applyGoalTransition({ kind: "resume_active" }, ctx);
   };
 
-  const completeGoal = (source: GoalEntrySource, ctx: ExtensionContext): GoalResult => {
+  const completeGoal = (source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult> => {
     const goal = getGoal();
+    if (isProtected(goal)) {
+      return deps.persistence.completeProtectedGoal(source, signal).then(result => {
+        const current = getGoal();
+        if (result.ok && (!current || !result.goal || !goalsEquivalent(current, result.goal))) {
+          return { ok: false, message: "blocked: Goal changed after completion commit.", goal: current };
+        }
+        if (result.ok) {
+          const plan = planGoalTransition(goal, { kind: "set", nextGoal: result.goal!, source });
+          applyGoalTransitionEffects(plan.beforePersist, deps.transitionEffectHandlers);
+          applyGoalTransitionEffects(plan.afterPersist, deps.transitionEffectHandlers);
+        } else if (!result.stale && getGoal()?.goalId === goal!.goalId && /^(review-failed|blocked):/.test(result.message)) {
+          if (getGoal()?.status === "active") applyGoalTransition({ kind: "recovery_pause", recoveryReason: result.message }, ctx);
+          else applyGoalTransitionEffects([{ type: "setRecoveryPausedAttention", reason: result.message }], deps.transitionEffectHandlers);
+        }
+        deps.refreshUi(ctx);
+        return { ...result, goal: getGoal() };
+      });
+    }
     const result = updateGoalStatus(goal, "complete");
     if (!result.ok || !result.goal) {
       return result;

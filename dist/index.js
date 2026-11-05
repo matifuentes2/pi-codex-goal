@@ -1,7 +1,11 @@
 import {
-  registerGoalControlTools,
-  __testHooks2
-} from "./index-6w3fdb4h.js";
+  COMPLETION_HOST_EVENT,
+  __testHooks,
+  registerGoalControlTools
+} from "./index-561yck2v.js";
+import {
+  __require
+} from "./index-1bx83sw4.js";
 
 // src/index.ts
 import { Type } from "typebox";
@@ -45,13 +49,26 @@ function throwToolError(message) {
   throw new Error(message);
 }
 async function textResult(text, goal, includeCompletionBudgetReport = false) {
-  const { goalToolResponse } = await import("./format-wgt0extz.js");
+  const { goalToolResponse } = await import("./format-30n2938h.js");
   return {
     content: [{ type: "text", text }],
     details: { ...goalToolResponse(goal, includeCompletionBudgetReport), error: null }
   };
 }
 function registerLazyGoalTools(pi, getController) {
+  pi.registerTool({
+    name: "run_goal_review",
+    label: "Run Goal Review",
+    description: "Run a trusted fresh-context read-only reviewer for the current protected PR goal. Use only the exact explicitly requested provider and model. No fallback or parent-authored verdict is accepted.",
+    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const host = await getController();
+      const result = await host.runReview(params.provider, params.model, ctx, signal);
+      if (!result.ok)
+        throwToolError(result.reason);
+      return textResult(result.reason, host.getGoalForDisplay());
+    }
+  });
   pi.registerTool({
     name: "get_goal",
     label: "Get Goal",
@@ -62,7 +79,7 @@ function registerLazyGoalTools(pi, getController) {
     async execute() {
       const controller = await getController();
       const goal = controller.getGoalForDisplay();
-      const { toToolText } = await import("./format-wgt0extz.js");
+      const { toToolText } = await import("./format-30n2938h.js");
       return textResult(toToolText(goal), goal);
     }
   });
@@ -76,14 +93,14 @@ function registerLazyGoalTools(pi, getController) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const controller = await getController();
       const current = controller.getGoalForDisplay();
-      const { createGoal, replaceGoal } = await import("./state-gnp0v2hd.js");
+      const { createGoal, replaceGoal } = await import("./state-pe2gxw01.js");
       const shouldReplaceExisting = params.replace_existing === true && current !== null && current.status !== "complete";
       const result = shouldReplaceExisting ? replaceGoal(params.objective, params.token_budget ?? null) : createGoal(current, params.objective, params.token_budget ?? null);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
       controller.setGoal(result.goal, "tool", ctx);
-      const { toToolText } = await import("./format-wgt0extz.js");
+      const { toToolText } = await import("./format-30n2938h.js");
       return textResult(toToolText(result.goal), result.goal);
     }
   });
@@ -96,11 +113,11 @@ function registerLazyGoalTools(pi, getController) {
     parameters: UpdateGoalParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const controller = await getController();
-      const result = controller.completeGoal("tool", ctx);
+      const result = await controller.completeGoal("tool", ctx, _signal);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
-      const { toToolText } = await import("./format-wgt0extz.js");
+      const { toToolText } = await import("./format-30n2938h.js");
       return textResult(toToolText(result.goal, true), result.goal, true);
     }
   });
@@ -113,7 +130,7 @@ function registerLazyGoalCommand(pi, getController) {
     },
     async handler(args, ctx) {
       const controller = await getController();
-      const { handleGoalCommand } = await import("./commands-9w4vwdks.js");
+      const { handleGoalCommand } = await import("./commands-nmmydbmd.js");
       await handleGoalCommand(pi, {
         getGoal: () => controller.getGoalForDisplay(),
         getGoalStartTurnStrategy: controller.getGoalStartTurnStrategy.bind(controller),
@@ -128,6 +145,8 @@ function src_default(pi) {
   let controller = null;
   let latestContext = null;
   let unsubscribeStartEvent;
+  let unsubscribePolicyHost;
+  const policies = new Map;
   let pendingSessionStart = null;
   let pendingSessionTree = null;
   let replayedStartupEvents = false;
@@ -145,22 +164,47 @@ function src_default(pi) {
   const getController = async () => {
     if (controller)
       return controller;
-    controllerPromise ??= import("./goal-runtime-controller-ndjzft4m.js").then(async (mod) => {
+    controllerPromise ??= import("./goal-runtime-controller-0ekbh681.js").then(async (mod) => {
       const nextController = mod.createGoalRuntimeController(pi);
       controller = nextController;
+      for (const [id, policy] of policies)
+        nextController.registerPolicy(id, policy.audit, policy.prepare);
       await replayStartupEvents(nextController);
       return nextController;
     });
     return controllerPromise;
   };
   try {
+    unsubscribePolicyHost = pi.events.on(COMPLETION_HOST_EVENT, (payload) => {
+      if (!payload || typeof payload !== "object" || !("provide" in payload) || typeof payload.provide !== "function")
+        return;
+      payload.provide({
+        apiVersion: 1,
+        registerPolicy(id, audit, prepare) {
+          if (!id || typeof audit !== "function" || typeof prepare !== "function")
+            throw new Error("Invalid trusted completion policy.");
+          policies.set(id, { audit, prepare });
+          controller?.registerPolicy(id, audit, prepare);
+        },
+        async startGoal(input) {
+          const host = await getController();
+          return latestContext ? host.startProtectedGoal(input, latestContext) : { ok: false, reason: "No current session context." };
+        }
+      });
+    });
+  } catch {}
+  try {
     unsubscribeStartEvent = pi.events.on("pi-codex-goal:start", async (payload) => {
+      if (payload && typeof payload === "object" && "policy" in payload) {
+        latestContext?.ui.notify("blocked: Policy-bearing starts require the completion-policy host.", "error");
+        return;
+      }
       const objective = typeof payload === "object" && payload !== null && "objective" in payload ? String(payload.objective ?? "").trim() : "";
       if (!objective || !latestContext)
         return;
       const nextController = await getController();
-      const { replaceGoal } = await import("./state-gnp0v2hd.js");
-      const { compactContinuationPrompt } = await import("./prompts-mjxx965c.js");
+      const { replaceGoal } = await import("./state-pe2gxw01.js");
+      const { compactContinuationPrompt } = await import("./prompts-j9k144b9.js");
       const result = replaceGoal(objective, null);
       if (!result.ok || !result.goal) {
         latestContext.ui.notify(result.message, "error");
@@ -173,20 +217,22 @@ function src_default(pi) {
   } catch {}
   registerLazyGoalTools(pi, getController);
   registerGoalControlTools(pi, async () => {
-    const controller = await getController();
+    const controller2 = await getController();
     return {
-      getGoal: () => controller.getGoalForDisplay(),
-      setGoal: controller.setGoal.bind(controller)
+      getGoal: () => controller2.getGoalForDisplay(),
+      setGoal: controller2.setGoal.bind(controller2)
     };
   });
   registerLazyGoalCommand(pi, getController);
   pi.on("session_start", async (event, ctx) => {
     latestContext = ctx;
     pendingSessionStart = { event, ctx };
+    pendingSessionTree = null;
     if (controller)
       await controller.onSessionStart(event, ctx);
   });
   pi.on("session_tree", async (event, ctx) => {
+    latestContext = ctx;
     pendingSessionTree = { event, ctx };
     if (controller)
       await controller.onSessionTree(event, ctx);
@@ -203,12 +249,13 @@ function src_default(pi) {
   pi.on("session_compact", async (event, ctx) => (await getController()).onSessionCompact(event, ctx));
   pi.on("session_shutdown", async (event, ctx) => {
     unsubscribeStartEvent?.();
+    unsubscribePolicyHost?.();
     latestContext = null;
     if (controller)
       await controller.onSessionShutdown(event, ctx);
   });
 }
 export {
-  __testHooks2 as __testHooks,
+  __testHooks,
   src_default as default
 };

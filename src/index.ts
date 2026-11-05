@@ -6,6 +6,7 @@ import type {
   ExtensionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { COMPLETION_HOST_EVENT, type PolicyAudit, type PrepareReview, type PolicyDescriptor } from "./completion-policy.js";
 
 import type { GoalToolResponse } from "./format.js";
 import { registerGoalControlTools } from "./goal-control-tools.js";
@@ -90,6 +91,18 @@ function registerLazyGoalTools(
   getController: () => Promise<GoalRuntimeController>,
 ): void {
   pi.registerTool({
+    name: "run_goal_review",
+    label: "Run Goal Review",
+    description: "Run a trusted fresh-context read-only reviewer for the current protected PR goal. Use only the exact explicitly requested provider and model. No fallback or parent-authored verdict is accepted.",
+    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const host = await getController();
+      const result = await host.runReview(params.provider, params.model, ctx, signal);
+      if (!result.ok) throwToolError(result.reason);
+      return textResult(result.reason, host.getGoalForDisplay());
+    },
+  });
+  pi.registerTool({
     name: "get_goal",
     label: "Get Goal",
     description: "Get the current Codex-style goal and usage for this pi session.",
@@ -141,7 +154,7 @@ function registerLazyGoalTools(
     parameters: UpdateGoalParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
       const controller = await getController();
-      const result: GoalResult = controller.completeGoal("tool", ctx);
+      const result: GoalResult = await controller.completeGoal("tool", ctx, _signal);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
@@ -183,6 +196,8 @@ export default function (pi: ExtensionAPI): void {
   let controller: GoalRuntimeController | null = null;
   let latestContext: ExtensionContext | null = null;
   let unsubscribeStartEvent: (() => void) | undefined;
+  let unsubscribePolicyHost: (() => void) | undefined;
+  const policies = new Map<string, { audit: PolicyAudit; prepare?: PrepareReview | undefined }>();
   let pendingSessionStart: { event: SessionStartEvent; ctx: ExtensionContext } | null = null;
   let pendingSessionTree: { event: SessionTreeEvent; ctx: ExtensionContext } | null = null;
   let replayedStartupEvents = false;
@@ -203,6 +218,7 @@ export default function (pi: ExtensionAPI): void {
     controllerPromise ??= import("./goal-runtime-controller.js").then(async (mod) => {
       const nextController = mod.createGoalRuntimeController(pi);
       controller = nextController;
+      for (const [id, policy] of policies) nextController.registerPolicy(id, policy.audit, policy.prepare);
       await replayStartupEvents(nextController);
       return nextController;
     });
@@ -210,7 +226,29 @@ export default function (pi: ExtensionAPI): void {
   };
 
   try {
+    unsubscribePolicyHost = pi.events.on(COMPLETION_HOST_EVENT, (payload: unknown) => {
+      if (!payload || typeof payload !== "object" || !("provide" in payload) || typeof payload.provide !== "function") return;
+      payload.provide({
+        apiVersion: 1,
+        registerPolicy(id: string, audit: PolicyAudit, prepare?: PrepareReview) {
+          if (!id || typeof audit !== "function" || typeof prepare !== "function") throw new Error("Invalid trusted completion policy.");
+          policies.set(id, { audit, prepare });
+          controller?.registerPolicy(id, audit, prepare);
+        },
+        async startGoal(input: { objective: string; policy: PolicyDescriptor }) {
+          const host = await getController();
+          return latestContext ? host.startProtectedGoal(input, latestContext) : { ok: false, reason: "No current session context." };
+        },
+      });
+    });
+  } catch { /* Minimal harnesses may not implement the shared event bus. */ }
+
+  try {
     unsubscribeStartEvent = pi.events.on("pi-codex-goal:start", async (payload: unknown) => {
+      if (payload && typeof payload === "object" && "policy" in payload) {
+        latestContext?.ui.notify("blocked: Policy-bearing starts require the completion-policy host.", "error");
+        return;
+      }
       const objective =
         typeof payload === "object" && payload !== null && "objective" in payload
           ? String((payload as { objective?: unknown }).objective ?? "").trim()
@@ -247,9 +285,11 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     latestContext = ctx;
     pendingSessionStart = { event, ctx };
+    pendingSessionTree = null;
     if (controller) await controller.onSessionStart(event, ctx);
   });
   pi.on("session_tree", async (event, ctx) => {
+    latestContext = ctx;
     pendingSessionTree = { event, ctx };
     if (controller) await controller.onSessionTree(event, ctx);
   });
@@ -273,6 +313,7 @@ export default function (pi: ExtensionAPI): void {
   );
   pi.on("session_shutdown", async (event: SessionShutdownEvent, ctx) => {
     unsubscribeStartEvent?.();
+    unsubscribePolicyHost?.();
     latestContext = null;
     if (controller) await controller.onSessionShutdown(event, ctx);
   });

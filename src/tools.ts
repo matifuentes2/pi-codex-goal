@@ -37,7 +37,8 @@ const UpdateGoalParams = Type.Object({
 export interface ToolHost {
   getGoal(): ThreadGoal | null;
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
-  completeGoal(source: GoalEntrySource, ctx: ExtensionContext): GoalResult;
+  completeGoal(source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult>;
+  runReview?(provider: string, model: string, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
 }
 
 function textResult(
@@ -57,6 +58,18 @@ function throwToolError(message: string): never {
 
 export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
   registerGoalControlTools(pi, async () => host);
+  pi.registerTool({
+    name: "run_goal_review",
+    label: "Run Goal Review",
+    description: "Run a fresh, read-only reviewer for the current protected PR goal. Requires an exact explicitly selected provider and model; never falls back. The host captures execution and verdict evidence. No parent-written verdict is accepted.",
+    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      if (!host.runReview) throwToolError("Trusted goal reviewer unavailable.");
+      const result = await host.runReview!(params.provider, params.model, ctx, signal);
+      if (!result.ok) throwToolError(result.reason);
+      return textResult(result.reason, host.getGoal());
+    },
+  });
   pi.registerTool({
     name: "get_goal",
     label: "Get Goal",
@@ -101,7 +114,7 @@ export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
     promptGuidelines: TOOL_PROMPT_GUIDELINES,
     parameters: UpdateGoalParams,
     async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-      const result = host.completeGoal("tool", ctx);
+      const result = await host.completeGoal("tool", ctx, _signal);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }

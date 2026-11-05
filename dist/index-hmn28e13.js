@@ -6,20 +6,21 @@ var CUSTOM_ENTRY_TYPE = "pi-codex-goal";
 var MAX_OBJECTIVE_CHARS = 8000;
 
 // src/state.ts
-function unixSeconds2() {
+function unixSeconds() {
   return Math.floor(Date.now() / 1000);
 }
 function cloneUsage(usage) {
   return { ...usage };
 }
-function cloneGoal2(goal) {
+function cloneGoal(goal) {
   return {
-    ...goal,
+    ...structuredClone(goal),
+    ...Object.hasOwn(goal, "completionPolicy") && goal.completionPolicy === undefined ? { completionPolicy: { id: "", config: null } } : {},
     usage: cloneUsage(goal.usage)
   };
 }
-function goalsEquivalent2(left, right) {
-  return left.goalId === right.goalId && left.objective === right.objective && left.status === right.status && left.tokenBudget === right.tokenBudget && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.usage.tokensUsed === right.usage.tokensUsed && left.usage.activeSeconds === right.usage.activeSeconds;
+function goalsEquivalent(left, right) {
+  return JSON.stringify([left.completionPolicy, left.reviewExecution]) === JSON.stringify([right.completionPolicy, right.reviewExecution]) && Object.hasOwn(left, "completionPolicy") === Object.hasOwn(right, "completionPolicy") && left.goalId === right.goalId && left.objective === right.objective && left.status === right.status && left.tokenBudget === right.tokenBudget && left.createdAt === right.createdAt && left.updatedAt === right.updatedAt && left.usage.tokensUsed === right.usage.tokensUsed && left.usage.activeSeconds === right.usage.activeSeconds;
 }
 function validateObjective(objective) {
   const trimmed = objective.trim();
@@ -40,13 +41,13 @@ function validateTokenBudget(tokenBudget) {
   }
   return null;
 }
-function statusAfterBudgetLimit2(status, tokensUsed, tokenBudget) {
+function statusAfterBudgetLimit(status, tokensUsed, tokenBudget) {
   if (status === "active" && tokenBudget !== null && tokensUsed >= tokenBudget) {
     return "budgetLimited";
   }
   return status;
 }
-function createThreadGoal(objective, tokenBudget, now = unixSeconds2()) {
+function createThreadGoal(objective, tokenBudget, now = unixSeconds()) {
   return {
     goalId: randomUUID(),
     objective: objective.trim(),
@@ -60,17 +61,17 @@ function createThreadGoal(objective, tokenBudget, now = unixSeconds2()) {
     updatedAt: now
   };
 }
-function setEntry2(goal, source, at = unixSeconds2()) {
+function setEntry(goal, source, at = unixSeconds()) {
   return {
     version: 1,
     kind: "set",
     source,
-    goal: cloneGoal2(goal),
+    goal: cloneGoal(goal),
     at
   };
 }
-function runtimeUsageEntry2(goal, at = unixSeconds2()) {
-  if (!isRuntimeUsageGoalStatus2(goal.status)) {
+function runtimeUsageEntry(goal, at = unixSeconds()) {
+  if (!isRuntimeUsageGoalStatus(goal.status)) {
     throw new Error(`Cannot persist ${goal.status} goal as runtime usage entry.`);
   }
   return {
@@ -84,7 +85,7 @@ function runtimeUsageEntry2(goal, at = unixSeconds2()) {
     at
   };
 }
-function clearEntry2(clearedGoalId, source, at = unixSeconds2()) {
+function clearEntry(clearedGoalId, source, at = unixSeconds()) {
   return {
     version: 1,
     kind: "clear",
@@ -93,7 +94,7 @@ function clearEntry2(clearedGoalId, source, at = unixSeconds2()) {
     at
   };
 }
-function hostOverflowCapResetEntry2(active, at = unixSeconds2()) {
+function hostOverflowCapResetEntry(active, at = unixSeconds()) {
   return {
     version: 1,
     kind: "host_overflow_cap_reset",
@@ -113,7 +114,7 @@ function isGoalCustomEntry(data) {
     return entry.clearedGoalId === null || typeof entry.clearedGoalId === "string";
   }
   if (entry.kind === "usage") {
-    return entry.source === "runtime" && typeof entry.goalId === "string" && isRuntimeUsageGoalStatus2(entry.status) && isGoalUsage(entry.usage) && typeof entry.updatedAt === "number";
+    return entry.source === "runtime" && typeof entry.goalId === "string" && isRuntimeUsageGoalStatus(entry.status) && isGoalUsage(entry.usage) && typeof entry.updatedAt === "number";
   }
   if (entry.kind === "host_overflow_cap_reset") {
     return typeof entry.active === "boolean";
@@ -127,7 +128,7 @@ function isGoalUsage(usage) {
   const candidate = usage;
   return typeof candidate.tokensUsed === "number" && typeof candidate.activeSeconds === "number";
 }
-function isRuntimeUsageGoalStatus2(status) {
+function isRuntimeUsageGoalStatus(status) {
   return status === "active" || status === "budgetLimited";
 }
 function isThreadGoal(goal) {
@@ -144,7 +145,7 @@ function canApplyRuntimeUsageEntry(goal, entry) {
   if (!goal || goal.goalId !== entry.goalId) {
     return false;
   }
-  if (!isRuntimeUsageGoalStatus2(goal.status)) {
+  if (!isRuntimeUsageGoalStatus(goal.status)) {
     return false;
   }
   if (goal.status === "budgetLimited" && entry.status === "active") {
@@ -152,7 +153,7 @@ function canApplyRuntimeUsageEntry(goal, entry) {
   }
   return entry.updatedAt >= goal.updatedAt && entry.usage.tokensUsed >= goal.usage.tokensUsed && entry.usage.activeSeconds >= goal.usage.activeSeconds;
 }
-function reconstructGoal2(entries) {
+function reconstructGoal(entries) {
   let goal = null;
   for (const entry of entries) {
     if (entry.type !== "custom" || entry.customType !== CUSTOM_ENTRY_TYPE) {
@@ -164,12 +165,12 @@ function reconstructGoal2(entries) {
     if (entry.data.kind === "clear") {
       goal = null;
     } else if (entry.data.kind === "set") {
-      goal = cloneGoal2(entry.data.goal);
+      goal = cloneGoal(entry.data.goal);
     } else if (entry.data.kind === "usage") {
       if (!canApplyRuntimeUsageEntry(goal, entry.data)) {
         continue;
       }
-      goal = cloneGoal2(goal);
+      goal = cloneGoal(goal);
       goal.status = entry.data.status;
       goal.usage = cloneUsage(entry.data.usage);
       goal.updatedAt = entry.data.updatedAt;
@@ -180,7 +181,7 @@ function reconstructGoal2(entries) {
     hasGoal: goal !== null
   };
 }
-function reconstructHostOverflowCapNeedsUserReset2(entries) {
+function reconstructHostOverflowCapNeedsUserReset(entries) {
   let needsReset = false;
   for (const entry of entries) {
     if (entry.type !== "custom" || entry.customType !== CUSTOM_ENTRY_TYPE) {
@@ -195,7 +196,7 @@ function reconstructHostOverflowCapNeedsUserReset2(entries) {
   }
   return needsReset;
 }
-function createGoal2(current, objective, tokenBudget) {
+function createGoal(current, objective, tokenBudget) {
   if (current && current.status !== "complete") {
     return {
       ok: false,
@@ -218,7 +219,7 @@ function createGoal2(current, objective, tokenBudget) {
     goal
   };
 }
-function replaceGoal2(objective, tokenBudget) {
+function replaceGoal(objective, tokenBudget) {
   const objectiveError = validateObjective(objective);
   if (objectiveError) {
     return { ok: false, message: objectiveError, goal: null };
@@ -234,7 +235,7 @@ function replaceGoal2(objective, tokenBudget) {
     goal
   };
 }
-function updateGoalStatus2(current, status) {
+function updateGoalStatus(current, status) {
   if (!current) {
     return {
       ok: false,
@@ -257,13 +258,13 @@ function updateGoalStatus2(current, status) {
     };
   }
   if (status === "complete") {
-    const goal = cloneGoal2(current);
-    goal.status = "complete";
-    goal.updatedAt = unixSeconds2();
+    const goal2 = cloneGoal(current);
+    goal2.status = "complete";
+    goal2.updatedAt = unixSeconds();
     return {
       ok: true,
       message: "Goal marked complete.",
-      goal
+      goal: goal2
     };
   }
   if (status === "paused" && current.status !== "active") {
@@ -280,20 +281,20 @@ function updateGoalStatus2(current, status) {
       goal: current
     };
   }
-  const goal = cloneGoal2(current);
+  const goal = cloneGoal(current);
   if (current.status === "budgetLimited" && (status === "active" || status === "paused")) {
     goal.status = "budgetLimited";
   } else {
-    goal.status = statusAfterBudgetLimit2(status, goal.usage.tokensUsed, goal.tokenBudget);
+    goal.status = statusAfterBudgetLimit(status, goal.usage.tokensUsed, goal.tokenBudget);
   }
-  goal.updatedAt = unixSeconds2();
+  goal.updatedAt = unixSeconds();
   return {
     ok: true,
     message: `Goal marked ${goal.status}.`,
     goal
   };
 }
-function applyUsage2(current, tokensDelta, activeSecondsDelta, options = {}) {
+function applyUsage(current, tokensDelta, activeSecondsDelta, options = {}) {
   if (!current) {
     return { goal: current, changed: false, crossedBudget: false };
   }
@@ -309,16 +310,16 @@ function applyUsage2(current, tokensDelta, activeSecondsDelta, options = {}) {
   if (tokens === 0 && seconds === 0) {
     return { goal: current, changed: false, crossedBudget: false };
   }
-  const goal = cloneGoal2(current);
+  const goal = cloneGoal(current);
   const wasUnderBudget = goal.tokenBudget === null || goal.usage.tokensUsed < goal.tokenBudget;
   goal.usage.tokensUsed += tokens;
   goal.usage.activeSeconds += seconds;
-  goal.status = statusAfterBudgetLimit2(goal.status, goal.usage.tokensUsed, goal.tokenBudget);
-  goal.updatedAt = unixSeconds2();
+  goal.status = statusAfterBudgetLimit(goal.status, goal.usage.tokensUsed, goal.tokenBudget);
+  goal.updatedAt = unixSeconds();
   const crossedBudget = current.status === "active" && wasUnderBudget && goal.tokenBudget !== null && goal.usage.tokensUsed >= goal.tokenBudget;
   return { goal, changed: true, crossedBudget };
 }
-function goalWithLiveUsage2(current, activeGoalId, lastAccountedAt, now = Date.now()) {
+function goalWithLiveUsage(current, activeGoalId, lastAccountedAt, now = Date.now()) {
   if (!current || current.status !== "active" || activeGoalId !== current.goalId || lastAccountedAt === null) {
     return current;
   }
@@ -326,9 +327,9 @@ function goalWithLiveUsage2(current, activeGoalId, lastAccountedAt, now = Date.n
   if (liveSeconds === 0) {
     return current;
   }
-  const goal = cloneGoal2(current);
+  const goal = cloneGoal(current);
   goal.usage.activeSeconds += liveSeconds;
   return goal;
 }
 
-export { CUSTOM_ENTRY_TYPE, unixSeconds2, cloneGoal2, goalsEquivalent2, statusAfterBudgetLimit2, setEntry2, runtimeUsageEntry2, clearEntry2, hostOverflowCapResetEntry2, isRuntimeUsageGoalStatus2, reconstructGoal2, reconstructHostOverflowCapNeedsUserReset2, createGoal2, replaceGoal2, updateGoalStatus2, applyUsage2, goalWithLiveUsage2 };
+export { CUSTOM_ENTRY_TYPE, unixSeconds, cloneUsage, cloneGoal, goalsEquivalent, validateObjective, validateTokenBudget, statusAfterBudgetLimit, createThreadGoal, setEntry, runtimeUsageEntry, clearEntry, hostOverflowCapResetEntry, isGoalCustomEntry, isGoalUsage, isRuntimeUsageGoalStatus, isThreadGoal, isGoalStatus, reconstructGoal, reconstructHostOverflowCapNeedsUserReset, createGoal, replaceGoal, updateGoalStatus, applyUsage, goalWithLiveUsage };
