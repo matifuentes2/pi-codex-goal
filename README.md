@@ -10,6 +10,18 @@ This package adds a `/goal` command plus three model-callable tools:
 
 Goal state is stored in pi session custom entries, so it follows session history, resume, fork, tree navigation, reload, and compaction behavior without an external database.
 
+### Protected PR-review goals
+
+This fork also provides the v1 completion-policy host used by `pi-pr-review-goal`
+and the `run_goal_review` tool. Protected goals persist their policy and trusted
+review ledger, and completion awaits a deny-by-default audit at the persistence
+boundary. Generic goals retain their existing behavior. The fresh read-only
+reviewer requires Pi 1.5+ and an explicitly selected exact provider/model; launch
+failure pauses the goal rather than falling back or spinning.
+
+See [completion policy integration](docs/completion-policy.md) for the contract,
+restore/race behavior, trust assumptions and real integration validation.
+
 ## Install
 
 Install from npm:

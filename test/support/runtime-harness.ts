@@ -32,6 +32,7 @@ export interface SentUserMessage {
 }
 
 export function createRuntimeHarness(options: {
+  extension?: typeof goalExtension;
   idle?: boolean;
   pendingMessages?: boolean;
   compactBehavior?: "success" | "error" | "unavailable";
@@ -41,6 +42,7 @@ export function createRuntimeHarness(options: {
 } = {}) {
   const entries: ReturnType<ExtensionCommandContext["sessionManager"]["getBranch"]> = [];
   const handlers = new Map<string, EventHandler[]>();
+  const bus = new Map<string, Set<(data: unknown) => void>>();
   const sentMessages: SentMessage[] = [];
   const sentUserMessages: SentUserMessage[] = [];
   const tools = new Map<string, (params: Record<string, unknown>) => Promise<unknown>>();
@@ -90,11 +92,14 @@ export function createRuntimeHarness(options: {
       });
     },
     events: {
-      emit() {
-        unsupportedHarnessMethod("pi.events.emit");
+      emit(event, data) {
+        for (const listener of bus.get(event) ?? []) listener(data);
       },
-      on() {
-        unsupportedHarnessMethod("pi.events.on");
+      on(event, listener) {
+        const listeners = bus.get(event) ?? new Set<(data: unknown) => void>();
+        listeners.add(listener);
+        bus.set(event, listeners);
+        return () => { listeners.delete(listener); };
       },
     },
     exec: async () => ({ stdout: "", stderr: "", code: 0, killed: false }),
@@ -264,11 +269,13 @@ export function createRuntimeHarness(options: {
     } as ExtensionCommandContext["model"];
   }
 
-  goalExtension(pi);
+  const extension = options.extension ?? goalExtension;
+  extension(pi);
 
   function reloadExtension(): void {
     handlers.clear();
-    goalExtension(pi);
+    bus.clear();
+    extension(pi);
   }
 
   async function reloadSession(reason: "startup" | "resume" = "startup"): Promise<void> {
@@ -302,6 +309,8 @@ export function createRuntimeHarness(options: {
   }
 
   return {
+    pi,
+    ctx,
     compactCalls,
     footerStatuses,
     emit,

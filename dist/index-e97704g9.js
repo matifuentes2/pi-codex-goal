@@ -1,7 +1,7 @@
 import {
-  formatDuration2,
-  formatTokenValue2
-} from "./index-br6qz0n5.js";
+  formatDuration,
+  formatTokenValue
+} from "./index-snztw4g3.js";
 
 // src/prompts.ts
 var CONTINUATION_MARKER_PREFIX = '<pi_goal_continuation goal_id="';
@@ -9,7 +9,7 @@ var GOAL_TOOL_NAME_GUIDANCE = "Call each goal tool by the name exposed in your a
 function goalToolReference(toolName) {
   return `${toolName} (or the exposed namespaced equivalent, such as pi__${toolName})`;
 }
-var TOOL_PROMPT_GUIDELINES2 = [
+var TOOL_PROMPT_GUIDELINES = [
   GOAL_TOOL_NAME_GUIDANCE,
   `Use ${goalToolReference("get_goal")} when you need to inspect the current long-running user objective.`,
   `Use ${goalToolReference("create_goal")} only when the user explicitly asks you to start tracking a concrete goal; do not infer goals from ordinary tasks and do not create a second goal while a non-complete goal already exists. After a goal is complete, ${goalToolReference("create_goal")} replaces it with a new active goal.`,
@@ -18,7 +18,7 @@ var TOOL_PROMPT_GUIDELINES2 = [
   `Do not use ${goalToolReference("update_goal")} merely because work is stopping, substantial progress was made, tests passed without covering every requirement, or the token budget is nearly exhausted.`,
   "When a goal is active, keep working through clear low-risk next steps instead of stopping at a plan."
 ];
-function continuationGoalIdFromPrompt2(prompt) {
+function continuationGoalIdFromPrompt(prompt) {
   if (typeof prompt !== "string" || !prompt.startsWith(CONTINUATION_MARKER_PREFIX)) {
     return null;
   }
@@ -29,18 +29,18 @@ function continuationGoalIdFromPrompt2(prompt) {
   return prompt.slice(CONTINUATION_MARKER_PREFIX.length, end);
 }
 function formatOptionalTokenBudget(goal) {
-  return goal.tokenBudget === null ? "none" : formatTokenValue2(goal.tokenBudget);
+  return goal.tokenBudget === null ? "none" : formatTokenValue(goal.tokenBudget);
 }
 function formatRemainingTokens(goal) {
   if (goal.tokenBudget === null) {
     return "unbounded";
   }
-  return formatTokenValue2(Math.max(0, goal.tokenBudget - goal.usage.tokensUsed));
+  return formatTokenValue(Math.max(0, goal.tokenBudget - goal.usage.tokensUsed));
 }
 function escapeXmlText(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
-function supersededContinuationMessage2(goalId) {
+function supersededContinuationMessage(goalId) {
   return [
     "Superseded hidden goal continuation bookkeeping.",
     `Goal id: ${goalId}.`,
@@ -49,7 +49,7 @@ function supersededContinuationMessage2(goalId) {
   ].join(`
 `);
 }
-function compactContinuationPrompt2(goal) {
+function compactContinuationPrompt(goal) {
   return [
     `${CONTINUATION_MARKER_PREFIX}${goal.goalId}">`,
     "Continue working toward the active thread goal.",
@@ -57,8 +57,8 @@ function compactContinuationPrompt2(goal) {
     `Inspect the current objective and status with ${goalToolReference("get_goal")} if needed.`,
     "",
     "Budget:",
-    `- Time spent pursuing goal: ${formatDuration2(goal.usage.activeSeconds)}`,
-    `- Tokens used: ${formatTokenValue2(goal.usage.tokensUsed)}`,
+    `- Time spent pursuing goal: ${formatDuration(goal.usage.activeSeconds)}`,
+    `- Tokens used: ${formatTokenValue(goal.usage.tokensUsed)}`,
     `- Token budget: ${formatOptionalTokenBudget(goal)}`,
     `- Tokens remaining: ${formatRemainingTokens(goal)}`,
     "",
@@ -71,7 +71,7 @@ function compactContinuationPrompt2(goal) {
   ].join(`
 `);
 }
-function continuationPrompt2(goal) {
+function continuationPrompt(goal) {
   return [
     `${CONTINUATION_MARKER_PREFIX}${goal.goalId}">`,
     "Continue working toward the active thread goal.",
@@ -83,8 +83,8 @@ function continuationPrompt2(goal) {
     "</untrusted_objective>",
     "",
     "Budget:",
-    `- Time spent pursuing goal: ${formatDuration2(goal.usage.activeSeconds)}`,
-    `- Tokens used: ${formatTokenValue2(goal.usage.tokensUsed)}`,
+    `- Time spent pursuing goal: ${formatDuration(goal.usage.activeSeconds)}`,
+    `- Tokens used: ${formatTokenValue(goal.usage.tokensUsed)}`,
     `- Token budget: ${formatOptionalTokenBudget(goal)}`,
     `- Tokens remaining: ${formatRemainingTokens(goal)}`,
     "",
@@ -109,7 +109,7 @@ function continuationPrompt2(goal) {
   ].join(`
 `);
 }
-function budgetLimitPrompt2(goal) {
+function budgetLimitPrompt(goal) {
   return [
     "The active thread goal has reached its token budget.",
     "",
@@ -120,8 +120,8 @@ function budgetLimitPrompt2(goal) {
     "</untrusted_objective>",
     "",
     "Budget:",
-    `- Time spent pursuing goal: ${formatDuration2(goal.usage.activeSeconds)}`,
-    `- Tokens used: ${formatTokenValue2(goal.usage.tokensUsed)}`,
+    `- Time spent pursuing goal: ${formatDuration(goal.usage.activeSeconds)}`,
+    `- Tokens used: ${formatTokenValue(goal.usage.tokensUsed)}`,
     `- Token budget: ${formatOptionalTokenBudget(goal)}`,
     "",
     "The system has marked the goal as budgetLimited, so do not start new substantive work for this goal. Wrap up this turn soon: summarize useful progress, identify remaining work or blockers, and leave the user with a clear next step.",
@@ -133,4 +133,4 @@ function budgetLimitPrompt2(goal) {
 `);
 }
 
-export { TOOL_PROMPT_GUIDELINES2, continuationGoalIdFromPrompt2, supersededContinuationMessage2, compactContinuationPrompt2, continuationPrompt2, budgetLimitPrompt2 };
+export { GOAL_TOOL_NAME_GUIDANCE, goalToolReference, TOOL_PROMPT_GUIDELINES, continuationGoalIdFromPrompt, escapeXmlText, supersededContinuationMessage, compactContinuationPrompt, continuationPrompt, budgetLimitPrompt };

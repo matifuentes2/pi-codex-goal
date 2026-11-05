@@ -1,3 +1,5 @@
+import type { PolicyDescriptor, ReviewExecution } from "./completion-policy.js";
+
 export const CUSTOM_ENTRY_TYPE = "pi-codex-goal";
 export const MAX_OBJECTIVE_CHARS = 8000;
 
@@ -10,6 +12,8 @@ export interface GoalUsage {
 
 export interface ThreadGoal {
 	goalId: string;
+	completionPolicy?: PolicyDescriptor;
+	reviewExecution?: ReviewExecution;
 	objective: string;
 	status: GoalStatus;
 	tokenBudget: number | null;

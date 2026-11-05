@@ -29,13 +29,19 @@ export function cloneUsage(usage: GoalUsage): GoalUsage {
 
 export function cloneGoal(goal: ThreadGoal): ThreadGoal {
   return {
-    ...goal,
+    ...structuredClone(goal),
+    // JSON omits undefined properties. Preserve a malformed protection marker
+    // as an invalid descriptor instead of restoring it as a generic goal.
+    ...(Object.hasOwn(goal, "completionPolicy") && goal.completionPolicy === undefined
+      ? { completionPolicy: { id: "", config: null } } : {}),
     usage: cloneUsage(goal.usage),
   };
 }
 
 export function goalsEquivalent(left: ThreadGoal, right: ThreadGoal): boolean {
   return (
+    JSON.stringify([left.completionPolicy, left.reviewExecution]) === JSON.stringify([right.completionPolicy, right.reviewExecution]) &&
+    Object.hasOwn(left, "completionPolicy") === Object.hasOwn(right, "completionPolicy") &&
     left.goalId === right.goalId &&
     left.objective === right.objective &&
     left.status === right.status &&
