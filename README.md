@@ -16,8 +16,11 @@ This fork also provides the v1 completion-policy host used by `pi-pr-review-goal
 and the `run_goal_review` tool. Protected goals persist their policy and trusted
 review ledger, and completion awaits a deny-by-default audit at the persistence
 boundary. Generic goals retain their existing behavior. The fresh read-only
-reviewer requires Pi 1.5+ and an explicitly selected exact provider/model; launch
-failure pauses the goal rather than falling back or spinning.
+reviewer requires Pi 1.5+. PR-review goals inherit the active resolved model at
+creation (or an explicit override) and persist that exact selection. Call
+`run_goal_review({})` without asking the user to choose again. Launch failure
+pauses the goal rather than falling back or spinning, and later parent model
+changes do not change the bound reviewer.
 
 See [completion policy integration](docs/completion-policy.md) for the contract,
 restore/race behavior, trust assumptions and real integration validation.

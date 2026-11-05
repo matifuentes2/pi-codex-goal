@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { randomUUID } from "node:crypto";
-import { COMPLETION_HOST_EVENT, createPolicyRegistry, isProtected, type PolicyDescriptor, type PolicyAudit, type PrepareReview, type ReviewExecution } from "./completion-policy.js";
+import { COMPLETION_HOST_EVENT, createPolicyRegistry, isProtected, validReviewer, type PolicyDescriptor, type PolicyAudit, type PrepareReview, type ReviewExecution } from "./completion-policy.js";
 import { runReviewer } from "./review-runner.js";
 import { registerGoalCommand } from "./commands.js";
 import { createContinuationScheduler } from "./continuation-scheduler.js";
@@ -37,7 +37,7 @@ export interface GoalRuntimeController extends GoalRuntimeEventHandlers {
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult>;
   registerPolicy(id: string, audit: PolicyAudit, prepare?: PrepareReview): void;
   startProtectedGoal(request: { objective: string; policy: PolicyDescriptor }, ctx: ExtensionContext): Promise<{ ok: boolean; goalId?: string; reason?: string }>;
-  runReview(provider: string, model: string, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
+  runReview(provider: string | undefined, model: string | undefined, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
 }
 
 export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeController {
@@ -181,8 +181,19 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
       let launched = false;
       try {
         if (signal?.aborted) throw new Error("Reviewer interrupted before launch.");
-        const selected = ctx.modelRegistry.find(provider, model);
-        if (!selected || selected.provider !== provider || selected.id !== model) throw new Error(`Unknown exact reviewer model ${provider}/${model}. No fallback permitted.`);
+        const bound = goal.completionPolicy?.reviewer;
+        const explicit = provider !== undefined || model !== undefined;
+        const reviewer = Object.hasOwn(goal.completionPolicy ?? {}, "reviewer") ? bound
+          : (explicit ? { provider, model } : { provider: ctx.model?.provider, model: ctx.model?.id });
+        if (!validReviewer(reviewer)) throw new Error("No resolved reviewer model. Select a session model or pass an exact provider/model pair.");
+        if (bound && explicit && (provider !== bound.provider || model !== bound.model)) {
+          throw new Error(`Reviewer is bound to ${bound.provider}/${bound.model}; automatic model/provider changes are not permitted.`);
+        }
+        if (!persistence.bindReviewer(goal.goalId, reviewer)) throw new Error("Reviewer selection changed during setup.");
+        execution.provider = reviewer.provider;
+        execution.model = reviewer.model;
+        const selected = ctx.modelRegistry.find(reviewer.provider, reviewer.model);
+        if (!selected || selected.provider !== reviewer.provider || selected.id !== reviewer.model) throw new Error(`Unknown exact reviewer model ${reviewer.provider}/${reviewer.model}. No fallback permitted.`);
         const prepare = policies.get(goal)?.prepare;
         if (!prepare) throw new Error("Trusted reviewer preparation unavailable.");
         const input = await prepare(structuredClone(goal.completionPolicy!.config), execution.attemptId);
@@ -193,7 +204,7 @@ export function createGoalRuntimeController(pi: ExtensionAPI): GoalRuntimeContro
         if (latest?.goalId !== goal.goalId || latest.reviewExecution?.attemptId !== execution.attemptId || latest.reviewExecution.status !== "running") throw new Error("Review attempt superseded.");
         if (signal?.aborted) throw new Error("Reviewer interrupted before launch.");
         launched = true;
-        const result = await runReviewer(provider, model, input.prompt, signal);
+        const result = await runReviewer(reviewer.provider, reviewer.model, input.prompt, signal);
         const after = await prepare(structuredClone(goal.completionPolicy!.config), execution.attemptId);
         if (signal?.aborted || after.headSha !== input.headSha) throw new Error("PR head or checkout changed during review.");
         execution.status = "completed";
@@ -232,11 +243,12 @@ export function registerGoalRuntimeController(pi: ExtensionAPI): void {
       if (!payload || typeof payload !== "object" || !("provide" in payload) || typeof payload.provide !== "function") return;
       payload.provide({
         apiVersion: 1,
+        reviewerSelectionVersion: 1,
         registerPolicy: controller.registerPolicy,
         startGoal: (input: { objective: string; policy: PolicyDescriptor }) => latestContext
           ? controller.startProtectedGoal(input, latestContext)
           : Promise.resolve({ ok: false, reason: "No current session context." }),
-        runReview: (input: { provider: string; model: string }, signal?: AbortSignal) => latestContext
+        runReview: (input: { provider?: string; model?: string }, signal?: AbortSignal) => latestContext
           ? controller.runReview(input.provider, input.model, latestContext, signal)
           : Promise.resolve({ ok: false, reason: "No current session context." }),
       });

@@ -8,11 +8,12 @@ import {
   createPolicyRegistry,
   isProtected,
   policyState,
-  registerGoalControlTools
-} from "./index-561yck2v.js";
+  registerGoalControlTools,
+  validReviewer
+} from "./index-sc8y8cme.js";
 import {
   registerGoalCommand
-} from "./index-sfrcg1ac.js";
+} from "./index-nm3pvyxp.js";
 import {
   CUSTOM_ENTRY_TYPE,
   applyUsage,
@@ -38,7 +39,7 @@ import {
   compactContinuationPrompt,
   continuationGoalIdFromPrompt,
   supersededContinuationMessage
-} from "./index-e97704g9.js";
+} from "./index-eeadrj4d.js";
 import {
   CONTEXT_OVERFLOW_SIGNATURE,
   HOST_OVERFLOW_RECOVERY_REASON,
@@ -58,7 +59,7 @@ import {
   isSuccessfulAssistantTurn,
   reasonFromRecoveryPendingAttention,
   toToolText
-} from "./index-snztw4g3.js";
+} from "./index-w1wa93ny.js";
 import"./index-1bx83sw4.js";
 
 // src/goal-runtime-controller.ts
@@ -692,6 +693,21 @@ function createGoalPersistence(deps) {
       authorizedWrite = false;
     }
   };
+  const bindReviewer = (goalId, reviewer) => {
+    if (!goal || goal.goalId !== goalId || !goal.completionPolicy)
+      return false;
+    const bound = goal.completionPolicy.reviewer;
+    if (Object.hasOwn(goal.completionPolicy, "reviewer"))
+      return bound?.provider === reviewer.provider && bound.model === reviewer.model;
+    authorizedWrite = true;
+    try {
+      setGoalSnapshot({ ...goal, completionPolicy: { ...goal.completionPolicy, reviewer: structuredClone(reviewer) } });
+    } finally {
+      authorizedWrite = false;
+    }
+    flushGoalPersistence("runtime");
+    return true;
+  };
   const recordReview = (goalId, execution) => {
     if (!goal || goal.goalId !== goalId || !isProtected(goal) || goal.status === "complete")
       return false;
@@ -776,6 +792,7 @@ function createGoalPersistence(deps) {
   return {
     appendClearEntry,
     completeProtectedGoal,
+    bindReviewer,
     recordReview,
     restoreGoalSnapshot,
     flushGoalPersistence,
@@ -2659,8 +2676,8 @@ function registerGoalTools(pi, host) {
   pi.registerTool({
     name: "run_goal_review",
     label: "Run Goal Review",
-    description: "Run a fresh, read-only reviewer for the current protected PR goal. Requires an exact explicitly selected provider and model; never falls back. The host captures execution and verdict evidence. No parent-written verdict is accepted.",
-    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    description: "Run a fresh read-only reviewer for the current protected goal. Omit provider/model to use its persisted selection, initially inherited from the resolved session model. Do not ask the user to select it again. Explicit arguments must match the bound selection. No fallback or parent-written verdict is accepted.",
+    parameters: Type.Object({ provider: Type.Optional(Type.String({ minLength: 1 })), model: Type.Optional(Type.String({ minLength: 1 })) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       if (!host.runReview)
         throwToolError("Trusted goal reviewer unavailable.");
@@ -2844,9 +2861,21 @@ function createGoalRuntimeController(pi) {
       try {
         if (signal?.aborted)
           throw new Error("Reviewer interrupted before launch.");
-        const selected = ctx.modelRegistry.find(provider, model);
-        if (!selected || selected.provider !== provider || selected.id !== model)
-          throw new Error(`Unknown exact reviewer model ${provider}/${model}. No fallback permitted.`);
+        const bound = goal.completionPolicy?.reviewer;
+        const explicit = provider !== undefined || model !== undefined;
+        const reviewer = Object.hasOwn(goal.completionPolicy ?? {}, "reviewer") ? bound : explicit ? { provider, model } : { provider: ctx.model?.provider, model: ctx.model?.id };
+        if (!validReviewer(reviewer))
+          throw new Error("No resolved reviewer model. Select a session model or pass an exact provider/model pair.");
+        if (bound && explicit && (provider !== bound.provider || model !== bound.model)) {
+          throw new Error(`Reviewer is bound to ${bound.provider}/${bound.model}; automatic model/provider changes are not permitted.`);
+        }
+        if (!persistence.bindReviewer(goal.goalId, reviewer))
+          throw new Error("Reviewer selection changed during setup.");
+        execution.provider = reviewer.provider;
+        execution.model = reviewer.model;
+        const selected = ctx.modelRegistry.find(reviewer.provider, reviewer.model);
+        if (!selected || selected.provider !== reviewer.provider || selected.id !== reviewer.model)
+          throw new Error(`Unknown exact reviewer model ${reviewer.provider}/${reviewer.model}. No fallback permitted.`);
         const prepare = policies.get(goal)?.prepare;
         if (!prepare)
           throw new Error("Trusted reviewer preparation unavailable.");
@@ -2860,7 +2889,7 @@ function createGoalRuntimeController(pi) {
         if (signal?.aborted)
           throw new Error("Reviewer interrupted before launch.");
         launched = true;
-        const result = await runReviewer(provider, model, input.prompt, signal);
+        const result = await runReviewer(reviewer.provider, reviewer.model, input.prompt, signal);
         const after = await prepare(structuredClone(goal.completionPolicy.config), execution.attemptId);
         if (signal?.aborted || after.headSha !== input.headSha)
           throw new Error("PR head or checkout changed during review.");
@@ -2899,6 +2928,7 @@ function registerGoalRuntimeController(pi) {
         return;
       payload.provide({
         apiVersion: 1,
+        reviewerSelectionVersion: 1,
         registerPolicy: controller.registerPolicy,
         startGoal: (input) => latestContext ? controller.startProtectedGoal(input, latestContext) : Promise.resolve({ ok: false, reason: "No current session context." }),
         runReview: (input, signal) => latestContext ? controller.runReview(input.provider, input.model, latestContext, signal) : Promise.resolve({ ok: false, reason: "No current session context." })

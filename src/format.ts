@@ -1,3 +1,4 @@
+import type { ReviewerSelection } from "./completion-policy.js";
 import { formatRecoveryAttention, type RecoveryAttention } from "./recovery.js";
 import type { GoalStatus, ThreadGoal } from "./types.js";
 
@@ -10,6 +11,7 @@ const COMPACT_TOKEN_UNITS = [
 
 export interface GoalToolRecord {
   goalId: string;
+  reviewer?: ReviewerSelection;
   objective: string;
   status: GoalStatus;
   tokenBudget: number | null;
@@ -171,6 +173,7 @@ export function formatFooterStatus(goal: ThreadGoal | null, recoveryAttention: R
 export function toToolGoal(goal: ThreadGoal): GoalToolRecord {
   return {
     goalId: goal.goalId,
+    ...(goal.completionPolicy?.reviewer ? { reviewer: structuredClone(goal.completionPolicy.reviewer) } : {}),
     objective: goal.objective,
     status: goal.status,
     tokenBudget: goal.tokenBudget,

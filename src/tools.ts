@@ -38,7 +38,7 @@ export interface ToolHost {
   getGoal(): ThreadGoal | null;
   setGoal(goal: ThreadGoal, source: GoalEntrySource, ctx: ExtensionContext): void;
   completeGoal(source: GoalEntrySource, ctx: ExtensionContext, signal?: AbortSignal): GoalResult | Promise<GoalResult>;
-  runReview?(provider: string, model: string, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
+  runReview?(provider: string | undefined, model: string | undefined, ctx: ExtensionContext, signal?: AbortSignal): Promise<{ ok: boolean; reason: string }>;
 }
 
 function textResult(
@@ -61,8 +61,8 @@ export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
   pi.registerTool({
     name: "run_goal_review",
     label: "Run Goal Review",
-    description: "Run a fresh, read-only reviewer for the current protected PR goal. Requires an exact explicitly selected provider and model; never falls back. The host captures execution and verdict evidence. No parent-written verdict is accepted.",
-    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    description: "Run a fresh read-only reviewer for the current protected goal. Omit provider/model to use its persisted selection, initially inherited from the resolved session model. Do not ask the user to select it again. Explicit arguments must match the bound selection. No fallback or parent-written verdict is accepted.",
+    parameters: Type.Object({ provider: Type.Optional(Type.String({ minLength: 1 })), model: Type.Optional(Type.String({ minLength: 1 })) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       if (!host.runReview) throwToolError("Trusted goal reviewer unavailable.");
       const result = await host.runReview!(params.provider, params.model, ctx, signal);

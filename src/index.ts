@@ -93,8 +93,8 @@ function registerLazyGoalTools(
   pi.registerTool({
     name: "run_goal_review",
     label: "Run Goal Review",
-    description: "Run a trusted fresh-context read-only reviewer for the current protected PR goal. Use only the exact explicitly requested provider and model. No fallback or parent-authored verdict is accepted.",
-    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    description: "Run the current protected goal's fresh read-only reviewer. Call with no arguments to use its persisted selection (initially inherited from the resolved session model). Do not ask the user to choose it again. Optional provider/model must match the bound selection; no fallback or parent-authored verdict is accepted.",
+    parameters: Type.Object({ provider: Type.Optional(Type.String({ minLength: 1 })), model: Type.Optional(Type.String({ minLength: 1 })) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       const host = await getController();
       const result = await host.runReview(params.provider, params.model, ctx, signal);
@@ -230,6 +230,7 @@ export default function (pi: ExtensionAPI): void {
       if (!payload || typeof payload !== "object" || !("provide" in payload) || typeof payload.provide !== "function") return;
       payload.provide({
         apiVersion: 1,
+        reviewerSelectionVersion: 1,
         registerPolicy(id: string, audit: PolicyAudit, prepare?: PrepareReview) {
           if (!id || typeof audit !== "function" || typeof prepare !== "function") throw new Error("Invalid trusted completion policy.");
           policies.set(id, { audit, prepare });

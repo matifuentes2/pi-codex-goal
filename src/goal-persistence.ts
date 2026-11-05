@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { isProtected, policyState, type PolicyRegistry, type ReviewExecution } from "./completion-policy.js";
+import { isProtected, policyState, type PolicyRegistry, type ReviewExecution, type ReviewerSelection } from "./completion-policy.js";
 import { RUNTIME_PERSIST_INTERVAL_MS } from "./runtime-config.js";
 import {
   clearEntry,
@@ -65,6 +65,17 @@ export function createGoalPersistence(deps: GoalPersistenceDeps) {
     }
     authorizedWrite = true;
     try { setGoalSnapshot(restored); } finally { authorizedWrite = false; }
+  };
+
+  const bindReviewer = (goalId: string, reviewer: ReviewerSelection): boolean => {
+    if (!goal || goal.goalId !== goalId || !goal.completionPolicy) return false;
+    const bound = goal.completionPolicy.reviewer;
+    if (Object.hasOwn(goal.completionPolicy, "reviewer")) return bound?.provider === reviewer.provider && bound.model === reviewer.model;
+    authorizedWrite = true;
+    try { setGoalSnapshot({ ...goal, completionPolicy: { ...goal.completionPolicy, reviewer: structuredClone(reviewer) } }); }
+    finally { authorizedWrite = false; }
+    flushGoalPersistence("runtime");
+    return true;
   };
 
   const recordReview = (goalId: string, execution: ReviewExecution): boolean => {
@@ -155,6 +166,7 @@ export function createGoalPersistence(deps: GoalPersistenceDeps) {
   return {
     appendClearEntry,
     completeProtectedGoal,
+    bindReviewer,
     recordReview,
     restoreGoalSnapshot,
     flushGoalPersistence,
