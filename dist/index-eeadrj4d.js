@@ -1,7 +1,7 @@
 import {
   formatDuration,
   formatTokenValue
-} from "./index-snztw4g3.js";
+} from "./index-w1wa93ny.js";
 
 // src/prompts.ts
 var CONTINUATION_MARKER_PREFIX = '<pi_goal_continuation goal_id="';
@@ -55,6 +55,10 @@ function compactContinuationPrompt(goal) {
     "Continue working toward the active thread goal.",
     "",
     `Inspect the current objective and status with ${goalToolReference("get_goal")} if needed.`,
+    ...goal.completionPolicy?.reviewer ? [
+      `Reviewer is already selected: ${escapeXmlText(goal.completionPolicy.reviewer.provider)}/${escapeXmlText(goal.completionPolicy.reviewer.model)}.`,
+      "Call run_goal_review({}) when a review is needed; its persisted selection requires no further user choice. Initial session-model inheritance is not fallback. Do not switch models/providers after failure."
+    ] : [],
     "",
     "Budget:",
     `- Time spent pursuing goal: ${formatDuration(goal.usage.activeSeconds)}`,

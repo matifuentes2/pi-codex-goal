@@ -282,6 +282,7 @@ function formatFooterStatus(goal, recoveryAttention = null) {
 function toToolGoal(goal) {
   return {
     goalId: goal.goalId,
+    ...goal.completionPolicy?.reviewer ? { reviewer: structuredClone(goal.completionPolicy.reviewer) } : {},
     objective: goal.objective,
     status: goal.status,
     tokenBudget: goal.tokenBudget,

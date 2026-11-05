@@ -3,7 +3,8 @@
 The fork exposes synchronous `pi-codex-goal:completion-policy-host:v1` discovery
 through both the installed lazy `dist/index.js` entrypoint and the eager runtime
 registration API. The provider implements `registerPolicy(id, audit, prepare)`
-and `startGoal({objective, policy: {id, config}})`. It never forwards protected
+and `startGoal({objective, policy: {id, config, reviewer?}})`. It advertises
+`reviewerSelectionVersion: 1` so consumers can require durable model selection. It never forwards protected
 starts to the legacy objective-only event. Existing non-complete goals are not
 replaced by protected starts. Legacy policy-bearing event requests are rejected.
 
@@ -37,9 +38,16 @@ unchanged head; failed/interrupted evidence requires a new review attempt.
 
 ## Reviewer ownership
 
-`run_goal_review({provider, model})` accepts model selection only, not evidence,
-verdict text, executable paths or alternate prompts. It validates the exact
-provider/model in the current Pi registry before launch. The host creates the
+`run_goal_review({})` uses the goal's persisted `completionPolicy.reviewer`
+provider/model. The PR command initially inherits the actual resolved session
+model or an explicit `--reviewer` override. Optional provider/model tool arguments
+must match the binding: changing the parent model or retrying a failed launch
+never selects a fallback. Legacy goals with no binding choose the current resolved
+model once (or an explicit pair) on their first review and persist it. `get_goal`
+exposes the bound selection before the long objective in structured output.
+
+The tool accepts no evidence, verdict text, executable paths or alternate prompts.
+It validates the exact provider/model in the current Pi registry before launch. The host creates the
 attempt UUID and persists running before preparation, so even pre-launch failures
 supersede earlier clean evidence. A registered trusted preparation callback
 supplies the current head and prompt; preparation is revalidated after execution.

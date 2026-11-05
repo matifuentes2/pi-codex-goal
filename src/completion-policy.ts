@@ -1,12 +1,19 @@
 import type { ThreadGoal } from "./types.js";
 
 export const COMPLETION_HOST_EVENT = "pi-codex-goal:completion-policy-host:v1";
-export interface PolicyDescriptor { id: string; config: unknown }
+export interface ReviewerSelection { provider: string; model: string }
+export interface PolicyDescriptor { id: string; config: unknown; reviewer?: ReviewerSelection }
+export function validReviewer(value: unknown): value is ReviewerSelection {
+  return !!value && typeof value === "object" && "provider" in value && "model" in value &&
+    typeof value.provider === "string" && !!value.provider.trim() && typeof value.model === "string" && !!value.model.trim();
+}
 export interface ReviewExecution {
   attemptId: string;
   goalId: string;
   headSha: string;
   freshContext: boolean;
+  provider?: string;
+  model?: string;
   status: "running" | "completed" | "launch_failed" | "runtime_failed" | "interrupted";
   reason?: string;
   verdict?: string;

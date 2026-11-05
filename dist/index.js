@@ -2,7 +2,7 @@ import {
   COMPLETION_HOST_EVENT,
   __testHooks,
   registerGoalControlTools
-} from "./index-561yck2v.js";
+} from "./index-sc8y8cme.js";
 import {
   __require
 } from "./index-1bx83sw4.js";
@@ -49,7 +49,7 @@ function throwToolError(message) {
   throw new Error(message);
 }
 async function textResult(text, goal, includeCompletionBudgetReport = false) {
-  const { goalToolResponse } = await import("./format-30n2938h.js");
+  const { goalToolResponse } = await import("./format-thkfvsjd.js");
   return {
     content: [{ type: "text", text }],
     details: { ...goalToolResponse(goal, includeCompletionBudgetReport), error: null }
@@ -59,8 +59,8 @@ function registerLazyGoalTools(pi, getController) {
   pi.registerTool({
     name: "run_goal_review",
     label: "Run Goal Review",
-    description: "Run a trusted fresh-context read-only reviewer for the current protected PR goal. Use only the exact explicitly requested provider and model. No fallback or parent-authored verdict is accepted.",
-    parameters: Type.Object({ provider: Type.String({ minLength: 1 }), model: Type.String({ minLength: 1 }) }),
+    description: "Run the current protected goal's fresh read-only reviewer. Call with no arguments to use its persisted selection (initially inherited from the resolved session model). Do not ask the user to choose it again. Optional provider/model must match the bound selection; no fallback or parent-authored verdict is accepted.",
+    parameters: Type.Object({ provider: Type.Optional(Type.String({ minLength: 1 })), model: Type.Optional(Type.String({ minLength: 1 })) }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       const host = await getController();
       const result = await host.runReview(params.provider, params.model, ctx, signal);
@@ -79,7 +79,7 @@ function registerLazyGoalTools(pi, getController) {
     async execute() {
       const controller = await getController();
       const goal = controller.getGoalForDisplay();
-      const { toToolText } = await import("./format-30n2938h.js");
+      const { toToolText } = await import("./format-thkfvsjd.js");
       return textResult(toToolText(goal), goal);
     }
   });
@@ -100,7 +100,7 @@ function registerLazyGoalTools(pi, getController) {
         throwToolError(result.message);
       }
       controller.setGoal(result.goal, "tool", ctx);
-      const { toToolText } = await import("./format-30n2938h.js");
+      const { toToolText } = await import("./format-thkfvsjd.js");
       return textResult(toToolText(result.goal), result.goal);
     }
   });
@@ -117,7 +117,7 @@ function registerLazyGoalTools(pi, getController) {
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
       }
-      const { toToolText } = await import("./format-30n2938h.js");
+      const { toToolText } = await import("./format-thkfvsjd.js");
       return textResult(toToolText(result.goal, true), result.goal, true);
     }
   });
@@ -130,7 +130,7 @@ function registerLazyGoalCommand(pi, getController) {
     },
     async handler(args, ctx) {
       const controller = await getController();
-      const { handleGoalCommand } = await import("./commands-nmmydbmd.js");
+      const { handleGoalCommand } = await import("./commands-m8zjk59s.js");
       await handleGoalCommand(pi, {
         getGoal: () => controller.getGoalForDisplay(),
         getGoalStartTurnStrategy: controller.getGoalStartTurnStrategy.bind(controller),
@@ -164,7 +164,7 @@ function src_default(pi) {
   const getController = async () => {
     if (controller)
       return controller;
-    controllerPromise ??= import("./goal-runtime-controller-0ekbh681.js").then(async (mod) => {
+    controllerPromise ??= import("./goal-runtime-controller-kzag3h5h.js").then(async (mod) => {
       const nextController = mod.createGoalRuntimeController(pi);
       controller = nextController;
       for (const [id, policy] of policies)
@@ -180,6 +180,7 @@ function src_default(pi) {
         return;
       payload.provide({
         apiVersion: 1,
+        reviewerSelectionVersion: 1,
         registerPolicy(id, audit, prepare) {
           if (!id || typeof audit !== "function" || typeof prepare !== "function")
             throw new Error("Invalid trusted completion policy.");
@@ -204,7 +205,7 @@ function src_default(pi) {
         return;
       const nextController = await getController();
       const { replaceGoal } = await import("./state-pe2gxw01.js");
-      const { compactContinuationPrompt } = await import("./prompts-j9k144b9.js");
+      const { compactContinuationPrompt } = await import("./prompts-v2bsg4kq.js");
       const result = replaceGoal(objective, null);
       if (!result.ok || !result.goal) {
         latestContext.ui.notify(result.message, "error");

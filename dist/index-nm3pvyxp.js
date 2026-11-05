@@ -6,10 +6,10 @@ import {
 import {
   compactContinuationPrompt,
   continuationPrompt
-} from "./index-e97704g9.js";
+} from "./index-eeadrj4d.js";
 import {
   formatGoalSummary
-} from "./index-snztw4g3.js";
+} from "./index-w1wa93ny.js";
 
 // src/clipboard.ts
 import { spawn } from "node:child_process";

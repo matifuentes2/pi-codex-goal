@@ -4,6 +4,9 @@ import {
 
 // src/completion-policy.ts
 var COMPLETION_HOST_EVENT = "pi-codex-goal:completion-policy-host:v1";
+function validReviewer(value) {
+  return !!value && typeof value === "object" && "provider" in value && "model" in value && typeof value.provider === "string" && !!value.provider.trim() && typeof value.model === "string" && !!value.model.trim();
+}
 function isProtected(goal) {
   return !!goal && Object.prototype.hasOwnProperty.call(goal, "completionPolicy");
 }
@@ -77,7 +80,7 @@ function registerGoalControlTools(pi, getHost) {
       async execute(_id, _params, _signal, _onUpdate, ctx) {
         const host = await getHost();
         const { updateGoalStatus } = await import("./state-pe2gxw01.js");
-        const { goalToolResponse, toToolText } = await import("./format-30n2938h.js");
+        const { goalToolResponse, toToolText } = await import("./format-thkfvsjd.js");
         const current = host.getGoal();
         const result = current?.status === status ? { ok: true, goal: current, message: `Goal already ${status}.` } : updateGoalStatus(current, status);
         if (!result.ok || !result.goal)
@@ -109,4 +112,4 @@ var __testHooks = {
   autoCompactMinTokenAdvanceFraction: AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION
 };
 
-export { COMPLETION_HOST_EVENT, isProtected, policyState, createPolicyRegistry, registerGoalControlTools, CONTINUATION_RETRY_MS, RUNTIME_PERSIST_INTERVAL_MS, AUTO_COMPACT_SOFT_CONTEXT_PERCENT, AUTO_COMPACT_HARD_CONTEXT_PERCENT, AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION, __testHooks };
+export { COMPLETION_HOST_EVENT, validReviewer, isProtected, policyState, createPolicyRegistry, registerGoalControlTools, CONTINUATION_RETRY_MS, RUNTIME_PERSIST_INTERVAL_MS, AUTO_COMPACT_SOFT_CONTEXT_PERCENT, AUTO_COMPACT_HARD_CONTEXT_PERCENT, AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION, __testHooks };

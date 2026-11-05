@@ -152,6 +152,18 @@ test("real lazy host starts protected goals, refuses replacement, and tool await
   await assert.rejects(h.runTool("update_goal", { status: "complete" }), /policy unavailable/i);
   assert.equal(h.snapshot().goal?.status, "paused");
 });
+test("reviewer selection binds once, persists, clones deeply, and cannot be changed by direct writes", () => {
+  const h = fixture();
+  const reviewer = { provider: "openai", model: "gpt-6.1-sol" };
+  assert.equal(h.persistence.bindReviewer(h.goal.goalId, reviewer), true);
+  reviewer.provider = "mutated";
+  const bound = h.persistence.getGoal()!;
+  assert.deepEqual(bound.completionPolicy?.reviewer, { provider: "openai", model: "gpt-6.1-sol" });
+  assert.equal(h.persistence.bindReviewer(h.goal.goalId, { provider: "fallback", model: "other" }), false);
+  assert.throws(() => h.persistence.setGoalSnapshot({ ...bound, completionPolicy: { ...bound.completionPolicy!, reviewer } }), /Protected/);
+  const restored = reconstructGoal(h.entries.map(data => ({ type: "custom", customType: "pi-codex-goal", data }))).goal;
+  assert.deepEqual(restored?.completionPolicy?.reviewer, { provider: "openai", model: "gpt-6.1-sol" });
+});
 test("persistence failure rolls back protected completion in memory", async () => {
   const policies = createPolicyRegistry(); policies.registerPolicy("test/v1", async () => ready);
   const persistence = createGoalPersistence({ policies, pi: { appendEntry() { throw new Error("disk unavailable"); } } });
