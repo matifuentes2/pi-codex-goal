@@ -23,6 +23,10 @@ and registry generations before committing. All mutations, reloads, clears,
 replacements, newer attempts and concurrent successful completions invalidate an
 old authorization. Direct state transitions and snapshot writes reject protected
 completion, policy stripping and evidence changes before terminal effects.
+Model tool calls cannot replace a non-complete protected goal (`create_goal` with
+`replace_existing`); otherwise a generic replacement could be completed in its
+place. Only explicit user commands (`/goal clear`, confirmed `/goal <objective>`)
+cancel a protected goal, and cancellation is never recorded as completion.
 
 Both the actual lazy `update_goal` and the eager tool registration await this
 boundary. Generic goals remain synchronous internally for backwards compatibility.

@@ -4,13 +4,14 @@ import {
   AUTO_COMPACT_SOFT_CONTEXT_PERCENT,
   COMPLETION_HOST_EVENT,
   CONTINUATION_RETRY_MS,
+  PROTECTED_REPLACEMENT_BLOCKED,
   RUNTIME_PERSIST_INTERVAL_MS,
   createPolicyRegistry,
   isProtected,
   policyState,
   registerGoalControlTools,
   validReviewer
-} from "./index-sc8y8cme.js";
+} from "./index-4fpyjxnz.js";
 import {
   registerGoalCommand
 } from "./index-nm3pvyxp.js";
@@ -2709,6 +2710,8 @@ function registerGoalTools(pi, host) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const current = host.getGoal();
       const shouldReplaceExisting = params.replace_existing === true && current !== null && current.status !== "complete";
+      if (shouldReplaceExisting && isProtected(current))
+        throwToolError(PROTECTED_REPLACEMENT_BLOCKED);
       const result = shouldReplaceExisting ? replaceGoal(params.objective, params.token_budget ?? null) : createGoal(current, params.objective, params.token_budget ?? null);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);

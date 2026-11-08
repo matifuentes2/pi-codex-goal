@@ -6,6 +6,7 @@ import { createGoalStateController } from "../src/goal-state-controller.js";
 import { createGoalRecoveryMachine } from "../src/recovery-machine.js";
 import { createThreadGoal, reconstructGoal, setEntry } from "../src/state.js";
 import type { GoalCustomEntry } from "../src/types.js";
+import { registerGoalRuntimeController } from "../src/goal-runtime-controller.js";
 import { createRuntimeHarness } from "./support/runtime-harness.js";
 
 const ready = { ok: true, status: "ready", reason: "Trusted approval." };
@@ -214,3 +215,25 @@ test("unknown reviewer model persists failed attempt and pauses instead of spinn
   assert.equal(h.snapshot().goal?.reviewExecution?.status, "launch_failed");
   assert.equal(h.snapshot().goal?.reviewExecution?.goalId, goal.goalId);
 });
+for (const [label, extension] of [["lazy", undefined], ["eager", registerGoalRuntimeController]] as const) {
+  test(`${label} create_goal cannot replace a protected goal to dodge its completion policy`, async () => {
+    const h = createRuntimeHarness(extension ? { extension } : {});
+    const goal = createThreadGoal("Review PR"); goal.completionPolicy = { id: "test/v1", config: {} };
+    h.pi.appendEntry("pi-codex-goal", setEntry(goal, "command"));
+    await h.emit("session_start", { type: "session_start", reason: "startup" });
+    await assert.rejects(h.runTool("create_goal", { objective: "Say done", replace_existing: true }), /protected goal cannot be replaced/);
+    assert.equal(h.snapshot().goal?.goalId, goal.goalId);
+    assert.deepEqual(h.snapshot().goal?.completionPolicy, goal.completionPolicy);
+    await assert.rejects(h.runTool("update_goal", { status: "complete" }), /policy unavailable/i);
+    assert.notEqual(h.snapshot().goal?.status, "complete");
+  });
+  test(`${label} create_goal still replaces generic goals when asked`, async () => {
+    const h = createRuntimeHarness(extension ? { extension } : {});
+    const goal = createThreadGoal("Generic");
+    h.pi.appendEntry("pi-codex-goal", setEntry(goal, "command"));
+    await h.emit("session_start", { type: "session_start", reason: "startup" });
+    await h.runTool("create_goal", { objective: "Other", replace_existing: true });
+    assert.equal(h.snapshot().goal?.objective, "Other");
+    assert.notEqual(h.snapshot().goal?.goalId, goal.goalId);
+  });
+}

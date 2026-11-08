@@ -27,6 +27,8 @@ export type PrepareReview = (config: unknown, attemptId: string) => Promise<Revi
 export function isProtected(goal: ThreadGoal | null): boolean {
   return !!goal && Object.prototype.hasOwnProperty.call(goal, "completionPolicy");
 }
+export const PROTECTED_REPLACEMENT_BLOCKED =
+  "blocked: A protected goal cannot be replaced by a model tool call; replacement is not completion. Complete it through update_goal after its policy passes, or ask the user to run /goal clear or /goal <objective>.";
 export function policyState(goal: ThreadGoal): string {
   return JSON.stringify([goal.completionPolicy, goal.reviewExecution]);
 }
