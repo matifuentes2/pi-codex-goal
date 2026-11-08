@@ -2,6 +2,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { isProtected, PROTECTED_REPLACEMENT_BLOCKED } from "./completion-policy.js";
 import { registerGoalControlTools } from "./goal-control-tools.js";
 import { goalToolResponse, toToolText, type GoalToolResponse } from "./format.js";
 import { createGoal, replaceGoal } from "./state.js";
@@ -94,6 +95,7 @@ export function registerGoalTools(pi: ExtensionAPI, host: ToolHost): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const current = host.getGoal();
       const shouldReplaceExisting = params.replace_existing === true && current !== null && current.status !== "complete";
+      if (shouldReplaceExisting && isProtected(current)) throwToolError(PROTECTED_REPLACEMENT_BLOCKED);
       const result = shouldReplaceExisting
         ? replaceGoal(params.objective, params.token_budget ?? null)
         : createGoal(current, params.objective, params.token_budget ?? null);

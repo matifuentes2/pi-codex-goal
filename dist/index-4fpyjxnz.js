@@ -10,6 +10,7 @@ function validReviewer(value) {
 function isProtected(goal) {
   return !!goal && Object.prototype.hasOwnProperty.call(goal, "completionPolicy");
 }
+var PROTECTED_REPLACEMENT_BLOCKED = "blocked: A protected goal cannot be replaced by a model tool call; replacement is not completion. Complete it through update_goal after its policy passes, or ask the user to run /goal clear or /goal <objective>.";
 function policyState(goal) {
   return JSON.stringify([goal.completionPolicy, goal.reviewExecution]);
 }
@@ -112,4 +113,4 @@ var __testHooks = {
   autoCompactMinTokenAdvanceFraction: AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION
 };
 
-export { COMPLETION_HOST_EVENT, validReviewer, isProtected, policyState, createPolicyRegistry, registerGoalControlTools, CONTINUATION_RETRY_MS, RUNTIME_PERSIST_INTERVAL_MS, AUTO_COMPACT_SOFT_CONTEXT_PERCENT, AUTO_COMPACT_HARD_CONTEXT_PERCENT, AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION, __testHooks };
+export { COMPLETION_HOST_EVENT, validReviewer, isProtected, PROTECTED_REPLACEMENT_BLOCKED, policyState, createPolicyRegistry, registerGoalControlTools, CONTINUATION_RETRY_MS, RUNTIME_PERSIST_INTERVAL_MS, AUTO_COMPACT_SOFT_CONTEXT_PERCENT, AUTO_COMPACT_HARD_CONTEXT_PERCENT, AUTO_COMPACT_MIN_TOKEN_ADVANCE_FRACTION, __testHooks };

@@ -1,8 +1,10 @@
 import {
   COMPLETION_HOST_EVENT,
+  PROTECTED_REPLACEMENT_BLOCKED,
   __testHooks,
+  isProtected,
   registerGoalControlTools
-} from "./index-sc8y8cme.js";
+} from "./index-4fpyjxnz.js";
 import {
   __require
 } from "./index-1bx83sw4.js";
@@ -95,6 +97,8 @@ function registerLazyGoalTools(pi, getController) {
       const current = controller.getGoalForDisplay();
       const { createGoal, replaceGoal } = await import("./state-pe2gxw01.js");
       const shouldReplaceExisting = params.replace_existing === true && current !== null && current.status !== "complete";
+      if (shouldReplaceExisting && isProtected(current))
+        throwToolError(PROTECTED_REPLACEMENT_BLOCKED);
       const result = shouldReplaceExisting ? replaceGoal(params.objective, params.token_budget ?? null) : createGoal(current, params.objective, params.token_budget ?? null);
       if (!result.ok || !result.goal) {
         throwToolError(result.message);
@@ -164,7 +168,7 @@ function src_default(pi) {
   const getController = async () => {
     if (controller)
       return controller;
-    controllerPromise ??= import("./goal-runtime-controller-kzag3h5h.js").then(async (mod) => {
+    controllerPromise ??= import("./goal-runtime-controller-t3bapw8t.js").then(async (mod) => {
       const nextController = mod.createGoalRuntimeController(pi);
       controller = nextController;
       for (const [id, policy] of policies)

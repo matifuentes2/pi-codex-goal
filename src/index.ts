@@ -6,7 +6,7 @@ import type {
   ExtensionEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { COMPLETION_HOST_EVENT, type PolicyAudit, type PrepareReview, type PolicyDescriptor } from "./completion-policy.js";
+import { COMPLETION_HOST_EVENT, isProtected, PROTECTED_REPLACEMENT_BLOCKED, type PolicyAudit, type PrepareReview, type PolicyDescriptor } from "./completion-policy.js";
 
 import type { GoalToolResponse } from "./format.js";
 import { registerGoalControlTools } from "./goal-control-tools.js";
@@ -131,6 +131,9 @@ function registerLazyGoalTools(
       const { createGoal, replaceGoal } = await import("./state.js");
       const shouldReplaceExisting =
         params.replace_existing === true && current !== null && current.status !== "complete";
+      // Model-initiated replacement would let a generic goal be completed in place
+      // of the protected one. Only explicit user commands may cancel it.
+      if (shouldReplaceExisting && isProtected(current)) throwToolError(PROTECTED_REPLACEMENT_BLOCKED);
       const result = shouldReplaceExisting
         ? replaceGoal(params.objective, params.token_budget ?? null)
         : createGoal(current, params.objective, params.token_budget ?? null);
